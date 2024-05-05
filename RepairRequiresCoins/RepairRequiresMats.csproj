@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.1.0</AssemblyVersion>
+    <FileVersion>1.1.0</FileVersion>
+  </PropertyGroup>
+  <Import Project="$(SolutionDir)\valheim.targets" />
+  <ItemGroup>
+    <Reference Include="0Harmony20">
+      <HintPath>..\Libraries\BepInEx\core\0Harmony20.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Harmony">
+      <HintPath>C:\Users\Administrator\Downloads\BepInEx_x64_5.4.22.0\BepInEx\core\BepInEx.Harmony.dll</HintPath>
+    </Reference>
+    <Reference Include="BepInEx.Preloader">
+      <HintPath>C:\Users\Administrator\Downloads\BepInEx_x64_5.4.22.0\BepInEx\core\BepInEx.Preloader.dll</HintPath>
+    </Reference>
+    <Reference Include="HarmonyXInterop">
+      <HintPath>C:\Users\Administrator\Downloads\BepInEx_x64_5.4.22.0\BepInEx\core\HarmonyXInterop.dll</HintPath>
+    </Reference>
+    <Reference Include="ui_lib">
+      <HintPath>..\Libraries\BepInEx\core\ui_lib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
