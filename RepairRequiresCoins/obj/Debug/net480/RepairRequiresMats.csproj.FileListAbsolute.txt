@@ -24,3 +24,4 @@ C:\Users\Administrator\Documents\Valheim-Modding\RepairRequiresCoins-main\Repair
 C:\Users\Administrator\Documents\Valheim-Modding\RepairRequiresCoins-main\RepairRequiresCoins\obj\Debug\net480\RepairRequiresMats.csproj.CoreCompileInputs.cache
 C:\Users\Administrator\Documents\Valheim-Modding\RepairRequiresCoins-main\RepairRequiresCoins\obj\Debug\net480\RepairRequiresMats.dll
 C:\Users\Administrator\Documents\Valheim-Modding\RepairRequiresCoins-main\RepairRequiresCoins\obj\Debug\net480\RepairRequiresMats.pdb
+C:\Users\Administrator\Documents\Valheim-Modding\RepairRequiresCoins-main\RepairRequiresCoins\obj\Debug\net480\RepairRequiresMats.sourcelink.json

@@ -10,9 +10,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.1.0")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.1.1")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.1.0";
+        public const string Version = "1.1.1";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -83,7 +83,8 @@ namespace RepairRequiresMats {
         public static ConfigEntry<float> RoundLog;
         public static ConfigEntry<float> SerpentScale;
         public static ConfigEntry<float> WorldTreeFragment;
-        public static ConfigEntry<float> BurningWorldTreeFragment; 
+        public static ConfigEntry<float> BurningWorldTreeFragment;
+        public static ConfigEntry<float> Stone;
 
         public static void Dbgl(string str = "", bool pref = true) {
             if (isDebug)
@@ -149,7 +150,8 @@ namespace RepairRequiresMats {
             RoundLog = Config.Bind<float>("Item Values", "RoundLog", 1, "RoundLog exchange rate");
             SerpentScale = Config.Bind<float>("Item Values", "SerpentScale", 3, "SerpentScale exchange rate");
             WorldTreeFragment = Config.Bind<float>("Item Values", "WorldTreeFragment", 8, "WorldTreeFragment exchange rate");
-            BurningWorldTreeFragment = Config.Bind<float>("Item Values", "BurningWorldTreeFragment", 13, "BurningWorldTreeFragment exchange rate");            
+            BurningWorldTreeFragment = Config.Bind<float>("Item Values", "BurningWorldTreeFragment", 13, "BurningWorldTreeFragment exchange rate");
+            Stone = Config.Bind<float>("Item Values", "Stone", 1, "Stone exchange rate");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
 
@@ -203,9 +205,10 @@ namespace RepairRequiresMats {
                     savedValues.SerpentScale = SerpentScale.Value;
                     savedValues.WorldTreeFragment = WorldTreeFragment.Value;
                     savedValues.BurningWorldTreeFragment = BurningWorldTreeFragment.Value;
+                    savedValues.Stone = Stone.Value;
 
-                    //Dbgl("RRM: Values loaded from config file");
-                    //Dbgl("RRM: Test value: savedValues.BurningWorldTreeFragment = " + savedValues.BurningWorldTreeFragment.ToString());
+                //Dbgl("RRM: Values loaded from config file");
+                //Dbgl("RRM: Test value: savedValues.BurningWorldTreeFragment = " + savedValues.BurningWorldTreeFragment.ToString());
 
             } catch {
 
@@ -259,6 +262,7 @@ namespace RepairRequiresMats {
                 savedValues.SerpentScale = 3;
                 savedValues.WorldTreeFragment = 8;
                 savedValues.BurningWorldTreeFragment = 13;
+                savedValues.Stone = 1;
 
             }
 
@@ -1020,6 +1024,17 @@ namespace RepairRequiresMats {
                         else
                             calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BurningWorldTreeFragment * req.m_amount);
                         break;
+
+                    case "Stone":
+
+                        if (savedValues.Stone == -1)
+                            break;
+
+                        if (savedValues.BurningWorldTreeFragment * req.m_amount <= 1)
+                            calculatedRepairCoinCost += 1;
+                        else
+                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BurningWorldTreeFragment * req.m_amount);
+                        break;
                 }
             }
 
@@ -1112,4 +1127,5 @@ public class WeaponAndArmorValues {
     public float SerpentScale { get; set; }
     public float WorldTreeFragment { get; set; }
     public float BurningWorldTreeFragment { get; set; }
+    public float Stone { get; set; }
 }
