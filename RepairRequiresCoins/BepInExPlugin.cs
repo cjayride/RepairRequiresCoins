@@ -151,7 +151,7 @@ namespace RepairRequiresMats {
             SerpentScale = Config.Bind<float>("Item Values", "SerpentScale", 3, "SerpentScale exchange rate");
             WorldTreeFragment = Config.Bind<float>("Item Values", "WorldTreeFragment", 8, "WorldTreeFragment exchange rate");
             BurningWorldTreeFragment = Config.Bind<float>("Item Values", "BurningWorldTreeFragment", 13, "BurningWorldTreeFragment exchange rate");
-            Stone = Config.Bind<float>("Item Values", "Stone", 1, "Stone exchange rate");
+            Stone = Config.Bind<float>("Item Values", "Stone", -1, "Stone exchange rate");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
 
@@ -262,7 +262,7 @@ namespace RepairRequiresMats {
                 savedValues.SerpentScale = 3;
                 savedValues.WorldTreeFragment = 8;
                 savedValues.BurningWorldTreeFragment = 13;
-                savedValues.Stone = 1;
+                savedValues.Stone = -1;
 
             }
 
