@@ -10,9 +10,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.1.1")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.0")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.1.1";
+        public const string Version = "1.2.0";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -330,7 +330,7 @@ namespace RepairRequiresMats {
                     foreach (Piece.Requirement requirement in reqs) {
                         if (requirement.m_resItem) {
                             int amount = requirement.m_amount;
-                            if (Player.m_localPlayer.GetInventory().CountItems(requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
+                            if (CountNamedItems(Player.m_localPlayer.GetInventory(), requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
                                 enough = false;
                                 break;
                             }
@@ -355,6 +355,7 @@ namespace RepairRequiresMats {
                     orderedWornItems.Add(rid.item);
                 }
                 foreach (RepairItemData rid in unableRepairs) {
+                    outstring.Add($"<color=#{notEnoughTooltipColor.Value}>{Localization.instance.Localize(rid.item.m_shared.m_name)}: {GetRepairBlockReason(rid.item)}</color>");
                     orderedWornItems.Add(rid.item);
                 }
                 ___m_tempWornItems = new List<ItemDrop.ItemData>(orderedWornItems);
@@ -371,28 +372,23 @@ namespace RepairRequiresMats {
 
 
                 // added by cjayride
-                List<ItemDrop.ItemData> playerItems = Player.m_localPlayer.GetInventory().GetAllItems();
-                int numberOfCoinsInInventory = 0;
                 if (outstring.Count == 0) {
                     outstring.Add("Nothing to repair.");
                 }
 
-                int tempCoinCount = 0;
-
-                foreach (ItemDrop.ItemData item in playerItems) {
-
-                    if (item.m_shared.m_name == "$item_coins") {
-                        tempCoinCount += item.GetValue();
-                    }
-                }
-
-                numberOfCoinsInInventory = tempCoinCount;
+                int numberOfCoinsInInventory = CountNamedItems(Player.m_localPlayer.GetInventory(), "$item_coins");
                 outstring.Add("-------------------- \r\n <b>Coins: " + numberOfCoinsInInventory.ToString() + "</b>");
 
-                Utils.FindChild(go.transform, "Text").GetComponent<TMP_Text>().richText = true;
-                Utils.FindChild(go.transform, "Text").GetComponent<TMP_Text>().alignment = TextAlignmentOptions.Bottom;
-                Utils.FindChild(go.transform, "Text").GetComponent<TMP_Text>().fontSize = 20;
-                Utils.FindChild(go.transform, "Text").GetComponent<TMP_Text>().text = $"<b><color=#{titleTooltipColor.Value}>[{Localization.instance.Localize("$inventory_repairbutton")}]</color></b>\r\n -------------------- \r\n" + string.Join("\r\n", outstring);
+                Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
+                if (textChild == null)
+                    return;
+                TMP_Text tooltipText = textChild.GetComponent<TMP_Text>();
+                if (tooltipText == null)
+                    return;
+                tooltipText.richText = true;
+                tooltipText.alignment = TextAlignmentOptions.Bottom;
+                tooltipText.fontSize = 20;
+                tooltipText.text = $"<b><color=#{titleTooltipColor.Value}>[{Localization.instance.Localize("$inventory_repairbutton")}]</color></b>\r\n -------------------- \r\n" + string.Join("\r\n", outstring);
             }
         }
 
@@ -427,14 +423,14 @@ namespace RepairRequiresMats {
                     foreach (Piece.Requirement requirement in reqs) {
                         if (requirement.m_resItem) {
                             int amount = requirement.m_amount;
-                            if (Player.m_localPlayer.GetInventory().CountItems(requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
+                            if (CountNamedItems(Player.m_localPlayer.GetInventory(), requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
                                 enough = false;
                                 break;
                             }
                         }
                     }
                     if (enough) {
-                        Player.m_localPlayer.ConsumeResources(reqs.ToArray(), 1);
+                        ConsumeRepairRequirements(Player.m_localPlayer, reqs);
                         outstring = $"Used {string.Join(", ", reqstring)} to repair {Localization.instance.Localize(item.m_shared.m_name)}";
                         __result = true;
                     } else {
@@ -448,6 +444,108 @@ namespace RepairRequiresMats {
             }
         }
 
+        private static int CountNamedItems(Inventory inventory, string itemName) {
+            if (inventory == null || string.IsNullOrEmpty(itemName))
+                return 0;
+
+            int count = 0;
+            foreach (ItemDrop.ItemData item in inventory.GetAllItems()) {
+                if (item?.m_shared?.m_name == itemName)
+                    count += item.m_stack;
+            }
+            return count;
+        }
+
+        private static MethodInfo inventoryRemoveByName;
+
+        private static void RemoveNamedItems(Inventory inventory, string itemName, int amount) {
+            if (inventory == null || string.IsNullOrEmpty(itemName) || amount <= 0)
+                return;
+
+            if (inventoryRemoveByName == null) {
+                MethodInfo best = null;
+                foreach (MethodInfo method in AccessTools.GetDeclaredMethods(typeof(Inventory))) {
+                    if (method.Name != "RemoveItem")
+                        continue;
+                    ParameterInfo[] parameters = method.GetParameters();
+                    if (parameters.Length < 2 || parameters[0].ParameterType != typeof(string) || parameters[1].ParameterType != typeof(int))
+                        continue;
+                    if (best == null || parameters.Length < best.GetParameters().Length)
+                        best = method;
+                }
+                inventoryRemoveByName = best;
+            }
+
+            if (inventoryRemoveByName != null) {
+                ParameterInfo[] parameters = inventoryRemoveByName.GetParameters();
+                object[] args = new object[parameters.Length];
+                args[0] = itemName;
+                args[1] = amount;
+                for (int i = 2; i < parameters.Length; i++) {
+                    if (parameters[i].HasDefaultValue)
+                        args[i] = parameters[i].DefaultValue;
+                    else if (parameters[i].ParameterType == typeof(int))
+                        args[i] = -1;
+                    else if (parameters[i].ParameterType == typeof(bool))
+                        args[i] = true;
+                    else
+                        args[i] = null;
+                }
+                inventoryRemoveByName.Invoke(inventory, args);
+                return;
+            }
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = items.Count - 1; i >= 0 && amount > 0; i--) {
+                ItemDrop.ItemData item = items[i];
+                if (item?.m_shared?.m_name != itemName)
+                    continue;
+                int take = Mathf.Min(item.m_stack, amount);
+                item.m_stack -= take;
+                amount -= take;
+                if (item.m_stack <= 0)
+                    inventory.RemoveItem(item);
+            }
+        }
+
+        // Player.ConsumeResources(Requirement[], int, int) was removed in later Valheim versions
+        // (Call to Arms / 1.0 added extraAmount). Calling the old signature JIT-fails inside
+        // InventoryGui.CanRepair and spams MissingMethodException every frame.
+        private static void ConsumeRepairRequirements(Player player, List<Piece.Requirement> reqs) {
+            if (player == null || reqs == null)
+                return;
+
+            Inventory inventory = player.GetInventory();
+            foreach (Piece.Requirement requirement in reqs) {
+                if (requirement?.m_resItem?.m_itemData?.m_shared == null)
+                    continue;
+                RemoveNamedItems(inventory, requirement.m_resItem.m_itemData.m_shared.m_name, requirement.m_amount);
+            }
+        }
+
+        private static string GetRepairBlockReason(ItemDrop.ItemData item) {
+            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            if (recipe == null)
+                return "no recipe";
+
+            CraftingStation current = Player.m_localPlayer != null ? Player.m_localPlayer.GetCurrentCraftingStation() : null;
+            CraftingStation required = recipe.m_repairStation ? recipe.m_repairStation : recipe.m_craftingStation;
+            if (required != null && (current == null || required.m_name != current.m_name))
+                return "use " + Localization.instance.Localize(required.m_name);
+
+            if (current != null && current.GetLevel() < recipe.m_minStationLevel)
+                return "station level " + recipe.m_minStationLevel;
+
+            return "cannot repair here";
+        }
+
+        private static ItemDrop GetCoinsItemDrop() {
+            GameObject prefab = ObjectDB.instance != null ? ObjectDB.instance.GetItemPrefab("Coins") : null;
+            if (prefab == null && ZNetScene.instance != null)
+                prefab = ZNetScene.instance.GetPrefab("Coins");
+            return prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+        }
+
         private static List<Piece.Requirement> RepairReqs(ItemDrop.ItemData item, bool log = false) {
             float percent = (item.GetMaxDurability() - item.m_durability) / item.GetMaxDurability();
             Recipe fullRecipe = ObjectDB.instance.GetRecipe(item);
@@ -455,15 +553,7 @@ namespace RepairRequiresMats {
                 return null;
             var fullReqs = new List<Piece.Requirement>(fullRecipe.m_resources);
 
-            // added by cjayride
-            // hack in the coin object becuase I don't know how else to do it
-            // EssenceMagic breaks down into Coins, so I'm breaking it down to grab the Coin item
-            // Then I can have the Coin object held in the recipe container, and hack it into the original coded Recipe container
             int calculatedRepairCoinCost = 0;
-            GameObject prefab5 = ZNetScene.instance.GetPrefab("GoldRubyRing");
-            ItemDrop.ItemData newItem5 = prefab5.GetComponent<ItemDrop>().m_itemData.Clone();
-            Recipe cjayRecipe = ObjectDB.instance.GetRecipe(newItem5);
-            var cjayFullReqs = new List<Piece.Requirement>(cjayRecipe.m_resources);
 
             bool isMagic = false;
             if (epicLootAssembly != null) {
@@ -487,6 +577,8 @@ namespace RepairRequiresMats {
 
             List<Piece.Requirement> reqs = new List<Piece.Requirement>();
             for (int i = 0; i < fullReqs.Count; i++) {
+                if (fullReqs[i]?.m_resItem == null)
+                    continue;
 
                 Piece.Requirement req = new Piece.Requirement() {
                     m_resItem = fullReqs[i].m_resItem,
@@ -1030,51 +1122,29 @@ namespace RepairRequiresMats {
                         if (savedValues.Stone == -1)
                             break;
 
-                        if (savedValues.BurningWorldTreeFragment * req.m_amount <= 1)
+                        if (savedValues.Stone * req.m_amount <= 1)
                             calculatedRepairCoinCost += 1;
                         else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BurningWorldTreeFragment * req.m_amount);
+                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Stone * req.m_amount);
                         break;
                 }
             }
 
-            // added by cjayride
-            // this is the 2nd part of the item hack using the EssenceMagic recipe
-            // to get a coin item, and then modify the number of coins to add to the repair cost
-
             if (calculatedRepairCoinCost > 0) {
-                List<Piece.Requirement> cjayReqs = new List<Piece.Requirement>();
-                for (int i = 0; i < cjayFullReqs.Count; i++) {
+                ItemDrop coins = GetCoinsItemDrop();
+                if (coins == null)
+                    return null;
 
-                    Piece.Requirement cjayReq = new Piece.Requirement() {
-                        m_resItem = cjayFullReqs[i].m_resItem,
-                        m_amount = cjayFullReqs[i].m_amount,
-                        m_amountPerLevel = cjayFullReqs[i].m_amountPerLevel,
-                        m_recover = cjayFullReqs[i].m_recover
-                    };
-
-                    if (cjayReq.m_resItem.name == "Coins") {
-                        cjayReq.m_amount = calculatedRepairCoinCost;
-                        reqs.Add(cjayReq);
-                    } else {
-                        continue;
-                    }
-                }
-            } else {
-                // return a FREE repair
-                return null;
+                reqs.Add(new Piece.Requirement() {
+                    m_resItem = coins,
+                    m_amount = calculatedRepairCoinCost,
+                    m_amountPerLevel = 0,
+                    m_recover = false
+                });
+                return reqs;
             }
 
-            // commented out by cjayride
-            // this was original code by the dev
-            /*
-            if (!reqs.Any())
-            {
-                return null;
-            }*/
-
-            // left this return in, but it should never get called
-            return reqs;
+            return null;
         }
     }
 }

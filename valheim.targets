@@ -3,7 +3,7 @@
   <PropertyGroup>
     <AssemblyName>$(ProjectName)</AssemblyName>
     <RootNamespace>$(ProjectName)</RootNamespace>
-    <TargetFramework>net480</TargetFramework>
+    <TargetFramework>net48</TargetFramework>
     <Platforms>AnyCPU</Platforms>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <GamePath><!-- Set GamePath manually --></GamePath>
@@ -42,6 +42,7 @@
         <GamePath Condition="!Exists('$(GamePath)')">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 892970', 'InstallLocation', null, RegistryView.Registry64, RegistryView.Registry32))</GamePath>
         <_SteamLibraryPath>$([MSBuild]::GetRegistryValueFromView('HKEY_CURRENT_USER\SOFTWARE\Valve\Steam', 'SteamPath', null, RegistryView.Registry32))</_SteamLibraryPath>
         <GamePath Condition="!Exists('$(GamePath)') AND '$(_SteamLibraryPath)' != ''">$(_SteamLibraryPath)\steamapps\common\Valheim</GamePath>
+        <GamePath Condition="!Exists('$(GamePath)')">D:\SteamLibrary\steamapps\common\Valheim</GamePath>
         <GamePath Condition="!Exists('$(GamePath)')">C:\Program Files\Steam\steamapps\common\Valheim</GamePath>
         <GamePath Condition="!Exists('$(GamePath)')">C:\Program Files (x86)\Steam\steamapps\common\Valheim</GamePath>
       </PropertyGroup>
@@ -53,6 +54,7 @@
     <BepInExPath>$(GamePath)\BepInEx</BepInExPath>
     <ManagedDataPath>$(GamePath)\valheim_Data\Managed</ManagedDataPath>
     <UnityPath>$(GamePath)\unstripped_corlib</UnityPath>
+    <UnityPath Condition="!Exists('$(UnityPath)')">$(ManagedDataPath)</UnityPath>
   </PropertyGroup>
   
   <!-- Add BepInEx references -->

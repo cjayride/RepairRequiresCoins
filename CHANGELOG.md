@@ -1,3 +1,13 @@
+# v1.2.0
+- Updated for Valheim 1.0
+- Fixed MissingMethodException spam for `Player.ConsumeResources(Piece.Requirement[], int, int)`
+- Repair now removes coins from inventory directly instead of calling the old ConsumeResources signature
+- Look up Coins from ObjectDB instead of the GoldRubyRing/EpicLoot recipe hack
+- EpicLoot is optional; still used for extra magic-item repair costs when present
+- Updated `Utils.FindChild` for the 1.0 signature
+- Repair tooltip now lists items that need a different crafting station instead of showing "Nothing to repair"
+- Fixed Stone material using the wrong exchange rate
+
 # v1.1.0
 - Removed terminal reload
 - Added compatibility for v0.217.46
