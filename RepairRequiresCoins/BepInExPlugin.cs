@@ -11,9 +11,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.1")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.2")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.1";
+        public const string Version = "1.2.2";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;

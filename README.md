@@ -44,3 +44,7 @@ Hover the repair button to see worn items at the current station.
 - Discord: discord.gg/cjayride (find me at the top of the user list) "cjayride"
 
 - Twitch: twitch.tv/cjayride
+
+# AI Generated
+
+This code was not AI Generated, however, AI was used to verify that it works with the new version of the game.

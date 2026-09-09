@@ -1,3 +1,6 @@
+# v1.2.2
+- Added Thunderstore AI Generated tag note in the README
+
 # v1.2.1
 - Repair uses the vanilla minimum station level; item quality does not raise the bench needed to repair
 - Still require the correct station type in Valheim 1.0 so forge gear is not treated as repairable at a workbench
