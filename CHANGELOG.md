@@ -1,3 +1,10 @@
+# v1.2.1
+- Repair uses the vanilla minimum station level; item quality does not raise the bench needed to repair
+- Still require the correct station type in Valheim 1.0 so forge gear is not treated as repairable at a workbench
+- Recheck crafting-station extensions so removing a bellows or anvil drops the station level immediately
+- `CoinOnly = false` charges coins plus original repair materials and lists those materials on the tooltip
+- Repair tooltip: white item names, green Free, green/red material amounts, yellow/red coin amounts, red "Needs station" text
+
 # v1.2.0
 - Updated for Valheim 1.0
 - Fixed MissingMethodException spam for `Player.ConsumeResources(Piece.Requirement[], int, int)`

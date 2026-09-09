@@ -3,6 +3,7 @@ using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using HarmonyLib;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -10,9 +11,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.0")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.1")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.0";
+        public const string Version = "1.2.1";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -95,12 +96,12 @@ namespace RepairRequiresMats {
             modEnabled = Config.Bind<bool>("General", "Enabled", true, "Enable this mod");
             showAllRepairsInToolTip = Config.Bind<bool>("General", "ShowAllRepairsInToolTip", true, "Show all repairs in tooltip when hovering over repair button.");
             titleTooltipColor = Config.Bind<string>("General", "TitleTooltipColor", "FFFFFFFF", "Color to use in tooltip title.");
-            hasEnoughTooltipColor = Config.Bind<string>("General", "HasEnoughTooltipColor", "FFFFFFFF", "Color to use in tooltip for items with enough resources to repair.");
-            notEnoughTooltipColor = Config.Bind<string>("General", "NotEnoughTooltipColor", "FF0000FF", "Color to use in tooltip for items with enough resources to repair.");
+            hasEnoughTooltipColor = Config.Bind<string>("General", "HasEnoughTooltipColor", "00FF00FF", "Color to use in tooltip for repairable item names.");
+            notEnoughTooltipColor = Config.Bind<string>("General", "NotEnoughTooltipColor", "FF0000FF", "Color to use in tooltip for items that cannot be repaired yet.");
             materialRequirementMult = Config.Bind<float>("General", "MaterialRequirementMult", 0.5f, "Multiplier for amount of each material required.");
 
             // added by cjayride
-            coinOnly = Config.Bind<bool>("General", "CoinOnly", true, "Repair only using coins.");
+            coinOnly = Config.Bind<bool>("General", "CoinOnly", true, "If true, repair costs coins only. If false, repair costs coins plus the original materials.");
 
             // item values
             savedValues = new WeaponAndArmorValues();
@@ -308,7 +309,7 @@ namespace RepairRequiresMats {
                 List<RepairItemData> unableRepairs = new List<RepairItemData>();
                 List<string> outstring = new List<string>();
                 foreach (ItemDrop.ItemData item in ___m_tempWornItems) {
-                    if (!Traverse.Create(__instance).Method("CanRepair", new object[] { item }).GetValue<bool>()) {
+                    if (!IsAtRequiredRepairStation(item)) {
                         unableRepairs.Add(new RepairItemData(item));
                         continue;
                     }
@@ -324,7 +325,7 @@ namespace RepairRequiresMats {
 
                         // changed by cjayride
                         //reqstring.Add($"{req.m_amount}/{Player.m_localPlayer.GetInventory().CountItems(req.m_resItem.m_itemData.m_shared.m_name)} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
-                        reqstring.Add($"{req.m_amount} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
+                        reqstring.Add(FormatRequirementLine(req));
                     }
                     bool enough = true;
                     foreach (Piece.Requirement requirement in reqs) {
@@ -343,19 +344,20 @@ namespace RepairRequiresMats {
                 }
                 orderedWornItems = new List<ItemDrop.ItemData>();
                 foreach (RepairItemData rid in freeRepairs) {
-                    outstring.Add($"<color=#{hasEnoughTooltipColor.Value}>{Localization.instance.Localize(rid.item.m_shared.m_name)}: Free</color>");
+                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: <color=#00FF00FF>Free</color>");
                     orderedWornItems.Add(rid.item);
                 }
                 foreach (RepairItemData rid in enoughRepairs) {
-                    outstring.Add($"<color=#{hasEnoughTooltipColor.Value}>{Localization.instance.Localize(rid.item.m_shared.m_name)}: {string.Join(", ", rid.reqstring)}</color>");
+                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: {string.Join(", ", rid.reqstring)}");
                     orderedWornItems.Add(rid.item);
                 }
                 foreach (RepairItemData rid in notEnoughRepairs) {
-                    outstring.Add($"<color=#{notEnoughTooltipColor.Value}>{Localization.instance.Localize(rid.item.m_shared.m_name)}: {string.Join(", ", rid.reqstring)}</color>");
+                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: {string.Join(", ", rid.reqstring)}");
                     orderedWornItems.Add(rid.item);
                 }
                 foreach (RepairItemData rid in unableRepairs) {
-                    outstring.Add($"<color=#{notEnoughTooltipColor.Value}>{Localization.instance.Localize(rid.item.m_shared.m_name)}: {GetRepairBlockReason(rid.item)}</color>");
+                    string itemName = Localization.instance.Localize(rid.item.m_shared.m_name);
+                    outstring.Add($"<color=#FFFFFFFF>{itemName}</color> - <color=#FF0000FF>{GetRepairNeedLabel(rid.item)}</color>");
                     orderedWornItems.Add(rid.item);
                 }
                 ___m_tempWornItems = new List<ItemDrop.ItemData>(orderedWornItems);
@@ -377,7 +379,7 @@ namespace RepairRequiresMats {
                 }
 
                 int numberOfCoinsInInventory = CountNamedItems(Player.m_localPlayer.GetInventory(), "$item_coins");
-                outstring.Add("-------------------- \r\n <b>Coins: " + numberOfCoinsInInventory.ToString() + "</b>");
+                outstring.Add("-------------------- \r\n <b><color=#FFFFFFFF>Coins</color>: <color=#FFFF00FF>" + numberOfCoinsInInventory.ToString() + "</color></b>");
 
                 Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
                 if (textChild == null)
@@ -388,7 +390,8 @@ namespace RepairRequiresMats {
                 tooltipText.richText = true;
                 tooltipText.alignment = TextAlignmentOptions.Bottom;
                 tooltipText.fontSize = 20;
-                tooltipText.text = $"<b><color=#{titleTooltipColor.Value}>[{Localization.instance.Localize("$inventory_repairbutton")}]</color></b>\r\n -------------------- \r\n" + string.Join("\r\n", outstring);
+                string stationLine = GetCurrentStationLevelLabel();
+                tooltipText.text = $"<b><color=#{titleTooltipColor.Value}>Repair an Item</color></b>\r\n{stationLine}\r\n -------------------- \r\n" + string.Join("\r\n", outstring);
             }
         }
 
@@ -398,7 +401,11 @@ namespace RepairRequiresMats {
                 if (!modEnabled.Value)
                     return;
 
-                if (modEnabled.Value && Environment.StackTrace.Contains("RepairOneItem") && !Environment.StackTrace.Contains("HaveRepairableItems") && __result == true && item?.m_shared != null && Player.m_localPlayer != null && orderedWornItems.Count > 0) {
+                // Valheim 1.0 CanRepair can return true at the wrong station via the world-level fallback.
+                if (!IsAtRequiredRepairStation(item))
+                    __result = false;
+
+                if (Environment.StackTrace.Contains("RepairOneItem") && !Environment.StackTrace.Contains("HaveRepairableItems") && __result == true && item?.m_shared != null && Player.m_localPlayer != null && orderedWornItems.Count > 0) {
                     if (orderedWornItems[0] != item) {
                         __result = false;
                         return;
@@ -415,7 +422,7 @@ namespace RepairRequiresMats {
 
                         // changed by cjayride
                         //reqstring.Add($"{req.m_amount}/{Player.m_localPlayer.GetInventory().CountItems(req.m_resItem.m_itemData.m_shared.m_name)} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
-                        reqstring.Add($"{req.m_amount} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
+                        reqstring.Add(FormatRequirementLine(req, false));
                     }
                     string outstring;
 
@@ -523,20 +530,120 @@ namespace RepairRequiresMats {
             }
         }
 
-        private static string GetRepairBlockReason(ItemDrop.ItemData item) {
+        private static string FormatRequirementLine(Piece.Requirement req, bool colored = true) {
+            string sharedName = req.m_resItem.m_itemData.m_shared.m_name;
+            string name = Localization.instance.Localize(sharedName);
+            bool isCoins = sharedName == "$item_coins" || req.m_resItem.name == "Coins";
+            if (!colored)
+                return req.m_amount + " " + (isCoins ? "Coins" : name);
+            if (isCoins) {
+                int coins = CountNamedItems(Player.m_localPlayer.GetInventory(), sharedName);
+                string coinAmountColor = coins >= req.m_amount ? "FFFF00FF" : "FF0000FF";
+                return "<color=#" + coinAmountColor + ">" + req.m_amount + "</color> <color=#FFFFFFFF>Coins</color>";
+            }
+            int have = CountNamedItems(Player.m_localPlayer.GetInventory(), sharedName);
+            string amountColor = have >= req.m_amount ? "00FF00FF" : "FF0000FF";
+            return "<color=#" + amountColor + ">" + req.m_amount + "</color> " + name;
+        }
+
+        private static bool RecipeRepairsAtStation(Recipe recipe, CraftingStation current) {
+            if (recipe == null || !current)
+                return false;
+            if (recipe.m_repairStation && recipe.m_repairStation.m_name == current.m_name)
+                return true;
+            if (recipe.m_craftingStation && recipe.m_craftingStation.m_name == current.m_name)
+                return true;
+            return false;
+        }
+
+        private static CraftingStation GetRequiredRepairStation(Recipe recipe) {
+            if (recipe == null)
+                return null;
+            if (recipe.m_repairStation)
+                return recipe.m_repairStation;
+            return recipe.m_craftingStation;
+        }
+
+        private static int GetRequiredRepairStationLevel(Recipe recipe) {
+            if (recipe == null)
+                return 1;
+            return Mathf.Max(1, recipe.m_minStationLevel);
+        }
+
+        private static bool IsAtRequiredRepairStation(ItemDrop.ItemData item) {
+            if (item == null || Player.m_localPlayer == null)
+                return false;
+
+            CraftingStation current = Player.m_localPlayer.GetCurrentCraftingStation();
+            if (!current)
+                return false;
+
+            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            if (recipe == null || !RecipeRepairsAtStation(recipe, current))
+                return false;
+
+            return GetLiveStationLevel(current) >= GetRequiredRepairStationLevel(recipe);
+        }
+
+        private static CraftingStation liveLevelStation;
+        private static int liveLevelValue;
+        private static int liveLevelFrame;
+
+        // Count only extensions that still exist. Destroyed bellows/anvils can linger in the cached list.
+        private static int GetLiveStationLevel(CraftingStation station) {
+            if (!station)
+                return 0;
+
+            int frame = Time.frameCount;
+            if (liveLevelFrame == frame && liveLevelStation == station)
+                return liveLevelValue;
+
+            FieldInfo timer = AccessTools.Field(typeof(CraftingStation), "m_updateExtensionTimer");
+            if (timer != null)
+                timer.SetValue(station, 999f);
+
+            MethodInfo refresh = AccessTools.Method(typeof(CraftingStation), "GetExtensions");
+            if (refresh != null)
+                refresh.Invoke(station, null);
+
+            FieldInfo listField = AccessTools.Field(typeof(CraftingStation), "m_attachedExtensions");
+            IList list = listField != null ? listField.GetValue(station) as IList : null;
+            int extras = 0;
+            if (list != null) {
+                foreach (object ext in list) {
+                    UnityEngine.Object unityObj = ext as UnityEngine.Object;
+                    if (unityObj)
+                        extras++;
+                }
+            } else {
+                extras = Math.Max(0, station.GetLevel(true) - 1);
+            }
+
+            liveLevelStation = station;
+            liveLevelFrame = frame;
+            liveLevelValue = 1 + extras;
+            return liveLevelValue;
+        }
+
+        private static string GetCurrentStationLevelLabel() {
+            CraftingStation current = Player.m_localPlayer != null ? Player.m_localPlayer.GetCurrentCraftingStation() : null;
+            if (!current)
+                return "";
+            string name = Localization.instance.Localize(current.m_name);
+            return name + " Lvl: " + GetLiveStationLevel(current);
+        }
+
+        private static string GetRepairNeedLabel(ItemDrop.ItemData item) {
             Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
             if (recipe == null)
-                return "no recipe";
+                return "Needs recipe";
 
-            CraftingStation current = Player.m_localPlayer != null ? Player.m_localPlayer.GetCurrentCraftingStation() : null;
-            CraftingStation required = recipe.m_repairStation ? recipe.m_repairStation : recipe.m_craftingStation;
-            if (required != null && (current == null || required.m_name != current.m_name))
-                return "use " + Localization.instance.Localize(required.m_name);
+            CraftingStation required = GetRequiredRepairStation(recipe);
+            if (!required)
+                return "cannot repair here";
 
-            if (current != null && current.GetLevel() < recipe.m_minStationLevel)
-                return "station level " + recipe.m_minStationLevel;
-
-            return "cannot repair here";
+            string stationName = Localization.instance.Localize(required.m_name);
+            return "Needs " + stationName + " Lvl: " + GetRequiredRepairStationLevel(recipe);
         }
 
         private static ItemDrop GetCoinsItemDrop() {
@@ -604,547 +711,56 @@ namespace RepairRequiresMats {
                 // reqs.Add(req);
 
                 req.m_amount = (int)fraction;
-
-                switch (req.m_resItem.name) {
-                    case "BlackMetalScrap":
-
-                        if (savedValues.BlackMetalScrap == -1)
-                            break;
-
-                        if (savedValues.BlackMetalScrap * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BlackMetalScrap * req.m_amount);
-                        break;
-
-                    case "BlackMetal":
-
-                        if (savedValues.BlackMetal == -1)
-                            break;
-
-                        if (savedValues.BlackMetal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BlackMetal * req.m_amount);
-                        break;
-
-                    case "Bronze":
-
-                        if (savedValues.Bronze == -1)
-                            break;
-
-                        if (savedValues.Bronze * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Bronze * req.m_amount);
-                        break;
-
-                    case "Chain":
-
-                        if (savedValues.Chain == -1)
-                            break;
-
-                        if (savedValues.Chain * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Chain * req.m_amount);
-                        break;
-
-                    case "Chitin":
-
-                        if (savedValues.Chitin == -1)
-                            break;
-
-                        if (savedValues.Chitin * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Chitin * req.m_amount);
-                        break;
-
-                    case "Copper":
-
-                        if (savedValues.Copper == -1)
-                            break;
-
-                        if (savedValues.Copper * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Copper * req.m_amount);
-                        break;
-
-                    case "CopperOre":
-
-                        if (savedValues.CopperOre == -1)
-                            break;
-
-                        if (savedValues.CopperOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.CopperOre * req.m_amount);
-                        break;
-
-                    case "Flametal":
-
-                        if (savedValues.Flametal == -1)
-                            break;
-
-                        if (savedValues.Flametal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Flametal * req.m_amount);
-                        break;
-
-                    case "FlametalOre":
-
-                        if (savedValues.FlametalOre == -1)
-                            break;
-
-                        if (savedValues.FlametalOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.FlametalOre * req.m_amount);
-                        break;
-
-                    case "Frometal":
-
-                        if (savedValues.Frometal == -1)
-                            break;
-
-                        if (savedValues.Frometal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Frometal * req.m_amount);
-                        break;
-
-                    case "FrometalOre":
-
-                        if (savedValues.FrometalOre == -1)
-                            break;
-
-                        if (savedValues.FrometalOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.FrometalOre * req.m_amount);
-                        break;
-
-                    case "FrostinfusedDarkmetal":
-
-                        if (savedValues.FrostinfusedDarkmetal == -1)
-                            break;
-
-                        if (savedValues.FrostinfusedDarkmetal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.FrostinfusedDarkmetal * req.m_amount);
-                        break;
-
-                    case "HeatedIron":
-
-                        if (savedValues.HeatedIron == -1)
-                            break;
-
-                        if (savedValues.HeatedIron * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.HeatedIron * req.m_amount);
-                        break;
-
-                    case "Heavymetal":
-
-                        if (savedValues.Heavymetal == -1)
-                            break;
-
-                        if (savedValues.Heavymetal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Heavymetal * req.m_amount);
-                        break;
-
-                    case "HeavymetalOre":
-
-                        if (savedValues.HeavymetalOre == -1)
-                            break;
-
-                        if (savedValues.HeavymetalOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.HeavymetalOre * req.m_amount);
-                        break;
-
-                    case "Heavyscale":
-
-                        if (savedValues.Heavyscale == -1)
-                            break;
-
-                        if (savedValues.Heavyscale * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Heavyscale * req.m_amount);
-                        break;
-
-                    case "Iron":
-
-                        if (savedValues.Iron == -1)
-                            break;
-
-                        if (savedValues.Iron * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Iron * req.m_amount);
-                        break;
-
-                    case "LeatherScraps":
-
-                        if (savedValues.LeatherScraps == -1)
-                            break;
-
-                        if (savedValues.LeatherScraps * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.LeatherScraps * req.m_amount);
-                        break;
-
-                    case "PrimordialIce":
-
-                        if (savedValues.PrimordialIce == -1)
-                            break;
-
-                        if (savedValues.PrimordialIce * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.PrimordialIce * req.m_amount);
-                        break;
-
-                    case "ScrapIron":
-
-                        if (savedValues.ScrapIron == -1)
-                            break;
-
-                        if (savedValues.ScrapIron * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.ScrapIron * req.m_amount);
-                        break;
-
-                    case "Silver":
-                        if (savedValues.Silver == -1)
-                            break;
-
-                        if (savedValues.Silver * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Silver * req.m_amount);
-                        break;
-
-                    case "SilverOre":
-
-                        if (savedValues.SilverOre == -1)
-                            break;
-
-                        if (savedValues.SilverOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.SilverOre * req.m_amount);
-                        break;
-
-                    case "Tin":
-
-                        if (savedValues.Tin == -1)
-                            break;
-
-                        if (savedValues.Tin * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Tin * req.m_amount);
-                        break;
-
-                    case "TinOre":
-
-                        if (savedValues.TinOre == -1)
-                            break;
-
-                        if (savedValues.TinOre * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.TinOre * req.m_amount);
-                        break;
-
-                    case "DeerHide":
-
-                        if (savedValues.DeerHide == -1)
-                            break;
-
-                        if (savedValues.DeerHide * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.DeerHide * req.m_amount);
-                        break;
-
-                    case "TrollHide":
-
-                        if (savedValues.TrollHide == -1)
-                            break;
-
-                        if (savedValues.TrollHide * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.TrollHide * req.m_amount);
-                        break;
-
-                    case "WolfPelt":
-
-                        if (savedValues.WolfPelt == -1)
-                            break;
-
-                        if (savedValues.WolfPelt * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.WolfPelt * req.m_amount);
-                        break;
-
-                    case "LoxPelt":
-
-                        if (savedValues.LoxPelt == -1)
-                            break;
-
-                        if (savedValues.LoxPelt * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.LoxPelt * req.m_amount);
-                        break;
-
-                    case "WitheredBone":
-
-                        if (savedValues.WitheredBone == -1)
-                            break;
-
-                        if (savedValues.WitheredBone * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.WitheredBone * req.m_amount);
-                        break;
-
-                    case "BoneFragments":
-
-                        if (savedValues.BoneFragments == -1)
-                            break;
-
-                        if (savedValues.BoneFragments * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BoneFragments * req.m_amount);
-                        break;
-
-                    case "LinenThread":
-
-                        if (savedValues.LinenThread == -1)
-                            break;
-
-                        if (savedValues.LinenThread * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.LinenThread * req.m_amount);
-                        break;
-
-                    case "ElderBark":
-
-                        if (savedValues.ElderBark == -1)
-                            break;
-
-                        if (savedValues.ElderBark * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.ElderBark * req.m_amount);
-                        break;
-
-                    case "Obsidian":
-
-                        if (savedValues.Obsidian == -1)
-                            break;
-
-                        if (savedValues.Obsidian * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Obsidian * req.m_amount);
-                        break;
-
-                    case "FreezeGland":
-
-                        if (savedValues.FreezeGland == -1)
-                            break;
-
-                        if (savedValues.FreezeGland * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.FreezeGland * req.m_amount);
-                        break;
-
-                    case "Crystal":
-
-                        if (savedValues.Crystal == -1)
-                            break;
-
-                        if (savedValues.Crystal * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Crystal * req.m_amount);
-                        break;
-
-                    case "YimirRemains":
-
-                        if (savedValues.YimirRemains == -1)
-                            break;
-
-                        if (savedValues.YimirRemains * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.YimirRemains * req.m_amount);
-                        break;
-
-                    case "HardAntler":
-
-                        if (savedValues.HardAntler == -1)
-                            break;
-
-                        if (savedValues.HardAntler * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.HardAntler * req.m_amount);
-                        break;
-
-                    case "SalamanderFurTH":
-                        if (savedValues.SalamanderFurTH == -1)
-                            break;
-
-                        if (savedValues.SalamanderFurTH * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.SalamanderFurTH * req.m_amount);
-                        break;
-
-                    case "WolfFang":
-                        if (savedValues.WolfFang == -1)
-                            break;
-
-                        if (savedValues.WolfFang * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.WolfFang * req.m_amount);
-                        break;
-
-                    case "Root":
-                        if (savedValues.Root == -1)
-                            break;
-
-                        if (savedValues.Root * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Root * req.m_amount);
-                        break;
-
-                    case "Flint":
-                        if (savedValues.Flint == -1)
-                            break;
-
-                        if (savedValues.Flint * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Flint * req.m_amount);
-                        break;
-
-                    case "Needle":
-                        if (savedValues.Needle == -1)
-                            break;
-
-                        if (savedValues.Needle * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Needle * req.m_amount);
-                        break;
-
-                    case "Wood":
-
-                        if (savedValues.Wood == -1)
-                            break;
-
-                        if (savedValues.Wood * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Wood * req.m_amount);
-                        break;
-
-                    case "RoundLog":
-
-                        if (savedValues.RoundLog == -1)
-                            break;
-
-                        if (savedValues.RoundLog * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.RoundLog * req.m_amount);
-                        break;
-
-                    case "SerpentScale":
-
-                        if (savedValues.SerpentScale == -1)
-                            break;
-
-                        if (savedValues.SerpentScale * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.SerpentScale * req.m_amount);
-                        break;
-
-                    case "WorldTreeFragment":
-
-                        if (savedValues.WorldTreeFragment == -1)
-                            break;
-
-                        if (savedValues.WorldTreeFragment * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.WorldTreeFragment * req.m_amount);
-                        break;
-
-                    case "BurningWorldTreeFragment":
-
-                        if (savedValues.BurningWorldTreeFragment == -1)
-                            break;
-
-                        if (savedValues.BurningWorldTreeFragment * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.BurningWorldTreeFragment * req.m_amount);
-                        break;
-
-                    case "Stone":
-
-                        if (savedValues.Stone == -1)
-                            break;
-
-                        if (savedValues.Stone * req.m_amount <= 1)
-                            calculatedRepairCoinCost += 1;
-                        else
-                            calculatedRepairCoinCost += Mathf.RoundToInt(savedValues.Stone * req.m_amount);
-                        break;
-                }
+                ApplyMaterialRepairCost(req, reqs, ref calculatedRepairCoinCost);
             }
 
             if (calculatedRepairCoinCost > 0) {
                 ItemDrop coins = GetCoinsItemDrop();
-                if (coins == null)
-                    return null;
+                if (coins == null && coinOnly.Value)
+                    return reqs.Count > 0 ? reqs : null;
 
-                reqs.Add(new Piece.Requirement() {
-                    m_resItem = coins,
-                    m_amount = calculatedRepairCoinCost,
-                    m_amountPerLevel = 0,
-                    m_recover = false
-                });
-                return reqs;
+                if (coins != null && calculatedRepairCoinCost > 0) {
+                    reqs.Add(new Piece.Requirement() {
+                        m_resItem = coins,
+                        m_amount = calculatedRepairCoinCost,
+                        m_amountPerLevel = 0,
+                        m_recover = false
+                    });
+                }
             }
 
-            return null;
+            if (reqs.Count == 0)
+                return null;
+
+            return reqs;
+        }
+
+        private static void ApplyMaterialRepairCost(Piece.Requirement req, List<Piece.Requirement> reqs, ref int calculatedRepairCoinCost) {
+            float rate;
+            bool known = TryGetMaterialRate(req.m_resItem.name, out rate);
+            if (known && rate == -1)
+                return;
+
+            if (known && req.m_amount > 0) {
+                if (rate * req.m_amount <= 1)
+                    calculatedRepairCoinCost += 1;
+                else
+                    calculatedRepairCoinCost += Mathf.RoundToInt(rate * req.m_amount);
+            }
+
+            if (!coinOnly.Value && req.m_amount > 0)
+                reqs.Add(req);
+        }
+
+        private static bool TryGetMaterialRate(string prefabName, out float rate) {
+            rate = 0;
+            if (savedValues == null || string.IsNullOrEmpty(prefabName))
+                return false;
+            var prop = typeof(WeaponAndArmorValues).GetProperty(prefabName);
+            if (prop == null)
+                return false;
+            rate = Convert.ToSingle(prop.GetValue(savedValues, null));
+            return true;
         }
     }
 }
