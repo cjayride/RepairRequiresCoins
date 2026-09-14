@@ -39,7 +39,7 @@ Hover the repair button to see worn items at the current station.
 - `Needs Workbench Lvl: 1` (wrong station or station too low) is red.
 
 # Contact
-- Twitter: twitter.com/cjayride
+- 𝕏: x.com/cjayride
 
 - Discord: discord.gg/cjayride (find me at the top of the user list) "cjayride"
 

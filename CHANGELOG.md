@@ -1,3 +1,7 @@
+# v1.2.3
+- Hide items that cannot be repaired in vanilla (for example torches) from the repair tooltip and repair list
+- Contact link updated from Twitter to X
+
 # v1.2.2
 - Added Thunderstore AI Generated tag note in the README
 

@@ -11,9 +11,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.2")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.3")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.2";
+        public const string Version = "1.2.3";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -309,6 +309,8 @@ namespace RepairRequiresMats {
                 List<RepairItemData> unableRepairs = new List<RepairItemData>();
                 List<string> outstring = new List<string>();
                 foreach (ItemDrop.ItemData item in ___m_tempWornItems) {
+                    if (!CanEverBeRepaired(item))
+                        continue;
                     if (!IsAtRequiredRepairStation(item)) {
                         unableRepairs.Add(new RepairItemData(item));
                         continue;
@@ -402,7 +404,7 @@ namespace RepairRequiresMats {
                     return;
 
                 // Valheim 1.0 CanRepair can return true at the wrong station via the world-level fallback.
-                if (!IsAtRequiredRepairStation(item))
+                if (!CanEverBeRepaired(item) || !IsAtRequiredRepairStation(item))
                     __result = false;
 
                 if (Environment.StackTrace.Contains("RepairOneItem") && !Environment.StackTrace.Contains("HaveRepairableItems") && __result == true && item?.m_shared != null && Player.m_localPlayer != null && orderedWornItems.Count > 0) {
@@ -544,6 +546,17 @@ namespace RepairRequiresMats {
             int have = CountNamedItems(Player.m_localPlayer.GetInventory(), sharedName);
             string amountColor = have >= req.m_amount ? "00FF00FF" : "FF0000FF";
             return "<color=#" + amountColor + ">" + req.m_amount + "</color> " + name;
+        }
+
+        private static bool CanEverBeRepaired(ItemDrop.ItemData item) {
+            if (item?.m_shared == null || !item.m_shared.m_canBeReparied)
+                return false;
+
+            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            if (recipe == null)
+                return false;
+
+            return recipe.m_repairStation || recipe.m_craftingStation;
         }
 
         private static bool RecipeRepairsAtStation(Recipe recipe, CraftingStation current) {
