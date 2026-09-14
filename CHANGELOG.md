@@ -1,3 +1,6 @@
+# v1.2.4
+- Default Wood and Stone exchange rates are 1 instead of -1, so wooden/stone gear costs coins to repair
+
 # v1.2.3
 - Hide items that cannot be repaired in vanilla (for example torches) from the repair tooltip and repair list
 - Contact link updated from Twitter to X

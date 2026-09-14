@@ -11,9 +11,9 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.3")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.4")]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.3";
+        public const string Version = "1.2.4";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -147,12 +147,12 @@ namespace RepairRequiresMats {
             Root = Config.Bind<float>("Item Values", "Root", 2, "Root exchange rate");
             Flint = Config.Bind<float>("Item Values", "Flint", 1, "Flint exchange rate");
             Needle = Config.Bind<float>("Item Values", "Needle", 5, "Needle exchange rate");
-            Wood = Config.Bind<float>("Item Values", "Wood", -1, "Wood exchange rate");
+            Wood = Config.Bind<float>("Item Values", "Wood", 1, "Wood exchange rate");
             RoundLog = Config.Bind<float>("Item Values", "RoundLog", 1, "RoundLog exchange rate");
             SerpentScale = Config.Bind<float>("Item Values", "SerpentScale", 3, "SerpentScale exchange rate");
             WorldTreeFragment = Config.Bind<float>("Item Values", "WorldTreeFragment", 8, "WorldTreeFragment exchange rate");
             BurningWorldTreeFragment = Config.Bind<float>("Item Values", "BurningWorldTreeFragment", 13, "BurningWorldTreeFragment exchange rate");
-            Stone = Config.Bind<float>("Item Values", "Stone", -1, "Stone exchange rate");
+            Stone = Config.Bind<float>("Item Values", "Stone", 1, "Stone exchange rate");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
 
@@ -258,12 +258,12 @@ namespace RepairRequiresMats {
                 savedValues.Root = 2;
                 savedValues.Flint = 1;
                 savedValues.Needle = 5;
-                savedValues.Wood = -1;
+                savedValues.Wood = 1;
                 savedValues.RoundLog = 1;
                 savedValues.SerpentScale = 3;
                 savedValues.WorldTreeFragment = 8;
                 savedValues.BurningWorldTreeFragment = 13;
-                savedValues.Stone = -1;
+                savedValues.Stone = 1;
 
             }
 
