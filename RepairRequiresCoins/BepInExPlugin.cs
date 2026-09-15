@@ -11,9 +11,10 @@ using UnityEngine;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.4")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.5")]
+    [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.4";
+        public const string Version = "1.2.5";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -32,6 +33,11 @@ namespace RepairRequiresMats {
         private static MethodInfo epicLootIsMagic;
         private static MethodInfo epicLootGetRarity;
         private static MethodInfo epicLootGetEnchantCosts;
+        private static MethodInfo swmarlyGetPocketCoins;
+        private static MethodInfo swmarlySetPocketCoins;
+        private const string SwmarlyQolGuid = "Swmarly.ValheimQOL";
+        private const string SwmarlyCoinKey = "SwmarlyValheimQOL_Coins";
+        private const string SwmarlyLegacyCoinKey = "CoinPocket_CoinCount";
 
         // added by cjayride
         public static WeaponAndArmorValues savedValues;
@@ -81,6 +87,7 @@ namespace RepairRequiresMats {
         public static ConfigEntry<float> Flint;
         public static ConfigEntry<float> Needle;
         public static ConfigEntry<float> Wood;
+        public static ConfigEntry<float> FineWood;
         public static ConfigEntry<float> RoundLog;
         public static ConfigEntry<float> SerpentScale;
         public static ConfigEntry<float> WorldTreeFragment;
@@ -148,6 +155,7 @@ namespace RepairRequiresMats {
             Flint = Config.Bind<float>("Item Values", "Flint", 1, "Flint exchange rate");
             Needle = Config.Bind<float>("Item Values", "Needle", 5, "Needle exchange rate");
             Wood = Config.Bind<float>("Item Values", "Wood", 1, "Wood exchange rate");
+            FineWood = Config.Bind<float>("Item Values", "FineWood", 1, "FineWood exchange rate");
             RoundLog = Config.Bind<float>("Item Values", "RoundLog", 1, "RoundLog exchange rate");
             SerpentScale = Config.Bind<float>("Item Values", "SerpentScale", 3, "SerpentScale exchange rate");
             WorldTreeFragment = Config.Bind<float>("Item Values", "WorldTreeFragment", 8, "WorldTreeFragment exchange rate");
@@ -202,6 +210,7 @@ namespace RepairRequiresMats {
                     savedValues.Flint = Flint.Value;
                     savedValues.Needle = Needle.Value;
                     savedValues.Wood = Wood.Value;
+                    savedValues.FineWood = FineWood.Value;
                     savedValues.RoundLog = RoundLog.Value;
                     savedValues.SerpentScale = SerpentScale.Value;
                     savedValues.WorldTreeFragment = WorldTreeFragment.Value;
@@ -259,6 +268,7 @@ namespace RepairRequiresMats {
                 savedValues.Flint = 1;
                 savedValues.Needle = 5;
                 savedValues.Wood = 1;
+                savedValues.FineWood = 1;
                 savedValues.RoundLog = 1;
                 savedValues.SerpentScale = 3;
                 savedValues.WorldTreeFragment = 8;
@@ -275,6 +285,14 @@ namespace RepairRequiresMats {
                 epicLootGetRarity = epicLootAssembly.GetType("EpicLoot.ItemDataExtensions").GetMethod("GetRarity", BindingFlags.Public | BindingFlags.Static);
                 epicLootGetEnchantCosts = epicLootAssembly.GetType("EpicLoot.Crafting.EnchantHelper").GetMethod("GetEnchantCosts", BindingFlags.Public | BindingFlags.Static);
                 Dbgl($"Loaded Epic Loot assembly; epicLootIsMagic {epicLootIsMagic != null}, epicLootGetRarity {epicLootGetRarity != null}, epicLootGetEnchantCosts {epicLootGetEnchantCosts != null}");
+            }
+
+            if (Chainloader.PluginInfos.ContainsKey(SwmarlyQolGuid)) {
+                Type pluginType = Chainloader.PluginInfos[SwmarlyQolGuid].Instance.GetType();
+                BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                swmarlyGetPocketCoins = pluginType.GetMethod("GetPocketCoins", flags, null, new[] { typeof(Player) }, null);
+                swmarlySetPocketCoins = pluginType.GetMethod("SetPocketCoins", flags, null, new[] { typeof(Player), typeof(int) }, null);
+                Dbgl($"Loaded Swmarly Valheim QOL coin pocket; GetPocketCoins {swmarlyGetPocketCoins != null}, SetPocketCoins {swmarlySetPocketCoins != null}");
             }
 
         }
@@ -453,6 +471,10 @@ namespace RepairRequiresMats {
             }
         }
 
+        private static bool IsCoinName(string itemName) {
+            return itemName == "$item_coins";
+        }
+
         private static int CountNamedItems(Inventory inventory, string itemName) {
             if (inventory == null || string.IsNullOrEmpty(itemName))
                 return 0;
@@ -462,7 +484,72 @@ namespace RepairRequiresMats {
                 if (item?.m_shared?.m_name == itemName)
                     count += item.m_stack;
             }
+            if (IsCoinName(itemName) && Player.m_localPlayer != null && inventory == Player.m_localPlayer.GetInventory())
+                count += GetPocketCoins(Player.m_localPlayer);
             return count;
+        }
+
+        private static int GetPocketCoins(Player player) {
+            if (player == null)
+                return 0;
+
+            if (swmarlyGetPocketCoins != null) {
+                try {
+                    return Math.Max(0, (int)swmarlyGetPocketCoins.Invoke(null, new object[] { player }));
+                } catch { }
+            }
+
+            if (player.m_customData == null)
+                return 0;
+            if (TryReadCustomCoins(player, SwmarlyCoinKey, out int coins))
+                return coins;
+            if (TryReadCustomCoins(player, SwmarlyLegacyCoinKey, out coins))
+                return coins;
+            return 0;
+        }
+
+        private static bool TryReadCustomCoins(Player player, string key, out int coins) {
+            coins = 0;
+            return player.m_customData.TryGetValue(key, out string value) && int.TryParse(value, out coins) && coins >= 0;
+        }
+
+        private static void SetPocketCoins(Player player, int coins) {
+            if (player == null)
+                return;
+
+            coins = Math.Max(0, coins);
+            if (swmarlySetPocketCoins != null) {
+                try {
+                    swmarlySetPocketCoins.Invoke(null, new object[] { player, coins });
+                    return;
+                } catch { }
+            }
+
+            if (player.m_customData == null)
+                return;
+            player.m_customData[SwmarlyCoinKey] = coins.ToString();
+        }
+
+        private static void SpendCoins(Player player, int amount) {
+            if (player == null || amount <= 0)
+                return;
+
+            Inventory inventory = player.GetInventory();
+            int inventoryCoins = 0;
+            if (inventory != null) {
+                foreach (ItemDrop.ItemData item in inventory.GetAllItems()) {
+                    if (item?.m_shared?.m_name == "$item_coins")
+                        inventoryCoins += item.m_stack;
+                }
+            }
+
+            int fromInventory = Math.Min(inventoryCoins, amount);
+            if (fromInventory > 0)
+                RemoveNamedItems(inventory, "$item_coins", fromInventory);
+
+            int remainder = amount - fromInventory;
+            if (remainder > 0)
+                SetPocketCoins(player, GetPocketCoins(player) - remainder);
         }
 
         private static MethodInfo inventoryRemoveByName;
@@ -528,7 +615,11 @@ namespace RepairRequiresMats {
             foreach (Piece.Requirement requirement in reqs) {
                 if (requirement?.m_resItem?.m_itemData?.m_shared == null)
                     continue;
-                RemoveNamedItems(inventory, requirement.m_resItem.m_itemData.m_shared.m_name, requirement.m_amount);
+                string itemName = requirement.m_resItem.m_itemData.m_shared.m_name;
+                if (IsCoinName(itemName))
+                    SpendCoins(player, requirement.m_amount);
+                else
+                    RemoveNamedItems(inventory, itemName, requirement.m_amount);
             }
         }
 
@@ -696,6 +787,7 @@ namespace RepairRequiresMats {
 
 
             List<Piece.Requirement> reqs = new List<Piece.Requirement>();
+            bool hasValuedMaterial = false;
             for (int i = 0; i < fullReqs.Count; i++) {
                 if (fullReqs[i]?.m_resItem == null)
                     continue;
@@ -709,23 +801,16 @@ namespace RepairRequiresMats {
 
                 int amount = 0;
                 for (int j = item.m_quality; j > 0; j--) {
-                    //Dbgl($"{req.m_resItem.m_itemData.m_shared.m_name} req for level {j} {req.m_amount}, {req.m_amountPerLevel} {req.GetAmount(j)}");
                     amount += req.GetAmount(j);
                 }
 
                 int fraction = Mathf.RoundToInt(amount * percent * materialRequirementMult.Value);
-
-
-                //Dbgl($"total {req.m_resItem.m_itemData.m_shared.m_name} reqs for {item.m_shared.m_name}, dur {item.m_durability}/{item.GetMaxDurability()} ({item.GetDurabilityPercentage()} {percent}): {fraction}/{amount}");
-
-                /*if (fraction > 0)
-                {*/
-                // req.m_amount = fraction;
-                // reqs.Add(req);
-
-                req.m_amount = (int)fraction;
-                ApplyMaterialRepairCost(req, reqs, ref calculatedRepairCoinCost);
+                req.m_amount = fraction;
+                ApplyMaterialRepairCost(req, reqs, ref calculatedRepairCoinCost, ref hasValuedMaterial);
             }
+
+            if (calculatedRepairCoinCost == 0 && hasValuedMaterial && percent > 0)
+                calculatedRepairCoinCost = 1;
 
             if (calculatedRepairCoinCost > 0) {
                 ItemDrop coins = GetCoinsItemDrop();
@@ -748,11 +833,14 @@ namespace RepairRequiresMats {
             return reqs;
         }
 
-        private static void ApplyMaterialRepairCost(Piece.Requirement req, List<Piece.Requirement> reqs, ref int calculatedRepairCoinCost) {
+        private static void ApplyMaterialRepairCost(Piece.Requirement req, List<Piece.Requirement> reqs, ref int calculatedRepairCoinCost, ref bool hasValuedMaterial) {
             float rate;
-            bool known = TryGetMaterialRate(req.m_resItem.name, out rate);
+            bool known = TryGetMaterialRate(req.m_resItem, out rate);
             if (known && rate == -1)
                 return;
+
+            if (known)
+                hasValuedMaterial = true;
 
             if (known && req.m_amount > 0) {
                 if (rate * req.m_amount <= 1)
@@ -765,15 +853,48 @@ namespace RepairRequiresMats {
                 reqs.Add(req);
         }
 
-        private static bool TryGetMaterialRate(string prefabName, out float rate) {
+        private static bool TryGetMaterialRate(ItemDrop drop, out float rate) {
             rate = 0;
-            if (savedValues == null || string.IsNullOrEmpty(prefabName))
+            if (drop == null)
                 return false;
-            var prop = typeof(WeaponAndArmorValues).GetProperty(prefabName);
-            if (prop == null)
+
+            string prefabName = drop.name;
+            if (!string.IsNullOrEmpty(prefabName)) {
+                prefabName = prefabName.Replace("(Clone)", "").Trim();
+                if (TryGetMaterialRateByProperty(prefabName, out rate))
+                    return true;
+            }
+
+            string sharedName = drop.m_itemData?.m_shared?.m_name;
+            if (string.IsNullOrEmpty(sharedName))
                 return false;
-            rate = Convert.ToSingle(prop.GetValue(savedValues, null));
-            return true;
+            return TryGetMaterialRateByProperty(SharedTokenToPropertyName(sharedName), out rate);
+        }
+
+        private static string SharedTokenToPropertyName(string sharedName) {
+            if (sharedName.StartsWith("$item_"))
+                sharedName = sharedName.Substring(6);
+            string[] parts = sharedName.Split('_');
+            string property = "";
+            foreach (string part in parts) {
+                if (part.Length == 0)
+                    continue;
+                property += char.ToUpperInvariant(part[0]) + (part.Length > 1 ? part.Substring(1) : "");
+            }
+            return property;
+        }
+
+        private static bool TryGetMaterialRateByProperty(string propertyName, out float rate) {
+            rate = 0;
+            if (savedValues == null || string.IsNullOrEmpty(propertyName))
+                return false;
+            foreach (PropertyInfo prop in typeof(WeaponAndArmorValues).GetProperties()) {
+                if (!string.Equals(prop.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                rate = Convert.ToSingle(prop.GetValue(savedValues, null));
+                return true;
+            }
+            return false;
         }
     }
 }
@@ -822,6 +943,7 @@ public class WeaponAndArmorValues {
     public float Flint { get; set; }
     public float Needle { get; set; }
     public float Wood { get; set; }
+    public float FineWood { get; set; }
     public float RoundLog { get; set; }
     public float SerpentScale { get; set; }
     public float WorldTreeFragment { get; set; }

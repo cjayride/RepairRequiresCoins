@@ -1,3 +1,8 @@
+# v1.2.5
+- Repair can spend coins from Swmarly Valheim QOL's Coin Purse as well as coins in inventory
+- Damaged items no longer show as Free when the material cost rounds down to 0 (for example a slightly worn Bronze Sword)
+- Added Fine Wood to the item-value list (default 1). Wood and Stone default to 1
+
 # v1.2.4
 - Default Wood and Stone exchange rates are 1 instead of -1, so wooden/stone gear costs coins to repair
 

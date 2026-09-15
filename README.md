@@ -25,6 +25,7 @@ A fork of [aedenthorn/RepairRequiresMats](https://github.com/aedenthorn/ValheimM
 - The default values were configured to match the coin economy of a cjaycraft modpack server https://valheim.thunderstore.io/package/cjayride/cjaycraft_ultimate_modpack/
 
 - EpicLoot is optional. If it is installed, magic items include extra enchant-cost materials in the coin calculation.
+- [Swmarly Valheim QOL](https://thunderstore.io/c/valheim/p/Swmarly/SwmarlyValheimQOL/) is optional. If its Coin Purse is installed, repair can spend purse coins as well as coins in your inventory.
 
 - `CoinOnly = true` (default) repairs with coins only. Set `CoinOnly = false` to charge coins plus the original repair materials (for example iron for an iron axe). Those materials are listed on the repair tooltip.
 
