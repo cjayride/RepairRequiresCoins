@@ -26,6 +26,7 @@ A fork of [aedenthorn/RepairRequiresMats](https://github.com/aedenthorn/ValheimM
 
 - EpicLoot is optional. If it is installed, magic items include extra enchant-cost materials in the coin calculation.
 - Coin purses are optional. Repair spends inventory coins first, then coins in [Swmarly Valheim QOL](https://thunderstore.io/c/valheim/p/Swmarly/SwmarlyValheimQOL/) or [Azumatt CurrencyPocket](https://valheim.hexium.gg/mods/Azumatt/CurrencyPocket).
+- [SeneaL UI](https://thunderstore.io/c/valheim/p/seneaL/SeneaL_UI/) is optional. Its repair tip lists this mod's costs and shows each item's icon.
 
 - `CoinOnly = true` (default) repairs with coins only. Set `CoinOnly = false` to charge coins plus the original repair materials (for example iron for an iron axe). Those materials are listed on the repair tooltip.
 

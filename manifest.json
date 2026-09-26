@@ -1,6 +1,6 @@
 {
     "name": "RepairRequiresCoins",
-    "version_number": "1.2.9",
+    "version_number": "1.2.10",
     "website_url": "https://github.com/cjayride/RepairRequiresCoins",
     "description": "Fork of aedenthorn/RepairRequiresMats. Repair your gear using Coins. Updated for Valheim 1.0.",
     "dependencies": [

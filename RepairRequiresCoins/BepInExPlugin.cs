@@ -12,10 +12,10 @@ using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.9")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.10")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.9";
+        public const string Version = "1.2.10";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -34,6 +34,7 @@ namespace RepairRequiresMats {
         private static string repairTooltipBody = "";
         private static string repairTooltipBodyPlain = "";
         private static readonly List<RepairOfferLine> senealOfferLines = new List<RepairOfferLine>();
+        private static bool senealDrawingOurTip;
         private static string senealStationLine = "";
         private static int senealCoinCount = 0;
 
@@ -455,7 +456,7 @@ namespace RepairRequiresMats {
                 string name = Localization.instance.Localize(rid.item.m_shared.m_name);
                 richLines.Add("<color=#FFFFFFFF>" + name + "</color>: <color=#00FF00FF>Free</color>");
                 plainLines.Add(name + ": Free");
-                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "Free", Note = "" });
+                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "Free", Note = "", Icon = GetItemIcon(rid.item) });
                 orderedWornItems.Add(rid.item);
             }
             foreach (RepairItemData rid in enoughRepairs) {
@@ -469,7 +470,7 @@ namespace RepairRequiresMats {
                 string need = GetRepairNeedLabel(rid.item);
                 richLines.Add("<color=#FFFFFFFF>" + name + "</color> - <color=#FF0000FF>" + need + "</color>");
                 plainLines.Add(name + " - " + need);
-                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "", Note = need });
+                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "", Note = need, Icon = GetItemIcon(rid.item) });
                 orderedWornItems.Add(rid.item);
             }
 
@@ -497,7 +498,7 @@ namespace RepairRequiresMats {
             List<string> plainReqs = richReqs.Select(StripRichText).ToList();
             richLines.Add("<color=#FFFFFFFF>" + name + "</color>: " + string.Join(", ", richReqs));
             plainLines.Add(name + "  —  " + string.Join(", ", plainReqs));
-            senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = string.Join(", ", plainReqs), Note = "" });
+            senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = string.Join(", ", plainReqs), Note = "", Icon = GetItemIcon(rid.item) });
             orderedWornItems.Add(rid.item);
         }
 
@@ -751,7 +752,129 @@ namespace RepairRequiresMats {
 
             Harmony harmony = new Harmony("cjayride.RepairRequiresCoins.seneal");
             harmony.Patch(repairTip, postfix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLRepairTipPostfix)));
+
+            Type tooltipType = AccessTools.TypeByName("SeneaLUI.Components.Tooltip");
+            MethodInfo build = tooltipType != null ? AccessTools.Method(tooltipType, "Build") : null;
+            MethodInfo layRow = tooltipType != null ? AccessTools.Method(tooltipType, "LayRow") : null;
+            if (build != null)
+                harmony.Patch(build, prefix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLTooltipBuildPrefix)));
+            if (layRow != null)
+                harmony.Patch(layRow, postfix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLTooltipLayRowPostfix)));
+
             Dbgl("Patched SeneaL CraftView.RepairTip");
+        }
+
+        private static Sprite GetItemIcon(ItemDrop.ItemData item) {
+            if (item == null)
+                return null;
+            try {
+                return item.GetIcon();
+            } catch {
+                return item.m_shared != null && item.m_shared.m_icons != null && item.m_shared.m_icons.Length > 0
+                    ? item.m_shared.m_icons[0]
+                    : null;
+            }
+        }
+
+        private static void SeneaLTooltipBuildPrefix(object tip) {
+            senealDrawingOurTip = false;
+            foreach (RepairOfferLine line in senealOfferLines)
+                line.IconUsed = false;
+            if (tip == null)
+                return;
+            string source = Traverse.Create(tip).Field("Source").GetValue<string>();
+            senealDrawingOurTip = source == "RepairRequiresCoins";
+        }
+
+        private static void SeneaLTooltipLayRowPostfix(object row, object r) {
+            if (!senealDrawingOurTip)
+                return;
+
+            try {
+                object data = row;
+                object ui = r;
+                if (!(Traverse.Create(ui).Field("Label").GetValue() is TMP_Text)) {
+                    if (Traverse.Create(data).Field("Label").GetValue() is TMP_Text) {
+                        object swap = data;
+                        data = ui;
+                        ui = swap;
+                    } else {
+                        return;
+                    }
+                }
+
+                string name = Traverse.Create(data).Field("Label").GetValue() as string;
+                TMP_Text label = Traverse.Create(ui).Field("Label").GetValue() as TMP_Text;
+                if (label == null)
+                    return;
+
+                ApplySeneaLRowIcon(label, TakeOfferIcon(name));
+            } catch {
+            }
+        }
+
+        private static Sprite TakeOfferIcon(string name) {
+            if (string.IsNullOrEmpty(name))
+                return null;
+            foreach (RepairOfferLine line in senealOfferLines) {
+                if (line.IconUsed || line.Name != name)
+                    continue;
+                line.IconUsed = true;
+                return line.Icon;
+            }
+            return null;
+        }
+
+        private static void ApplySeneaLRowIcon(TMP_Text label, Sprite icon) {
+            if (label == null)
+                return;
+
+            const string childName = "RepairRequiresCoinsIcon";
+            const float size = 20f;
+            const float gap = 6f;
+            Transform existing = label.transform.Find(childName);
+            if (icon == null) {
+                if (existing)
+                    existing.gameObject.SetActive(false);
+                label.margin = new Vector4(0f, label.margin.y, label.margin.z, label.margin.w);
+                return;
+            }
+
+            RectTransform iconRt;
+            Image image;
+            if (existing == null) {
+                GameObject go = new GameObject(childName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+                go.layer = label.gameObject.layer;
+                go.transform.SetParent(label.transform, false);
+                iconRt = go.GetComponent<RectTransform>();
+                iconRt.anchorMin = new Vector2(0f, 0.5f);
+                iconRt.anchorMax = new Vector2(0f, 0.5f);
+                iconRt.pivot = new Vector2(0f, 0.5f);
+                iconRt.sizeDelta = new Vector2(size, size);
+                iconRt.anchoredPosition = new Vector2(0f, 0f);
+                image = go.GetComponent<Image>();
+                image.raycastTarget = false;
+                image.preserveAspect = true;
+                image.type = Image.Type.Simple;
+            } else {
+                iconRt = existing as RectTransform;
+                image = existing.GetComponent<Image>();
+                existing.gameObject.SetActive(true);
+            }
+
+            if (image != null) {
+                image.sprite = icon;
+                image.overrideSprite = icon;
+                image.color = Color.white;
+                image.material = null;
+            }
+            if (iconRt != null) {
+                iconRt.sizeDelta = new Vector2(size, size);
+                iconRt.anchoredPosition = new Vector2(0f, 0f);
+                iconRt.localScale = Vector3.one;
+            }
+
+            label.margin = new Vector4(size + gap, label.margin.y, label.margin.z, label.margin.w);
         }
 
         private static void SeneaLRepairTipPostfix(object __result) {
@@ -781,6 +904,8 @@ namespace RepairRequiresMats {
                 tip.Field("RichText").SetValue(false);
             if (tip.Field("Source").FieldExists())
                 tip.Field("Source").SetValue("RepairRequiresCoins");
+            if (tip.Field("Icon").FieldExists())
+                tip.Field("Icon").SetValue(null);
 
             IList rows = tip.Field("Rows").FieldExists() ? tip.Field("Rows").GetValue() as IList : null;
             rows?.Clear();

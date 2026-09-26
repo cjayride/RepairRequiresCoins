@@ -1,3 +1,6 @@
+# v1.2.10
+- SeneaL UI repair list shows each item's icon to the left of the name
+
 # v1.2.9
 - Cannot repair when you have no coins (SeneaL was still using vanilla free repair if our item list was empty)
 - SeneaL repair tip is one title, station + coin count, and a readable item/cost list with no duplicated "Nothing to repair"
