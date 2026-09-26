@@ -1,3 +1,16 @@
+# v1.2.9
+- Cannot repair when you have no coins (SeneaL was still using vanilla free repair if our item list was empty)
+- SeneaL repair tip is one title, station + coin count, and a readable item/cost list with no duplicated "Nothing to repair"
+- Repair spends Azumatt CurrencyPocket coins (same CoinPocket_CoinCount data as that purse) as well as Swmarly Valheim QOL
+
+# v1.2.8
+- SeneaL UI repair click now charges coins (it was calling the unpatched vanilla repair method)
+- SeneaL repair tip uses plain text so color tags no longer show as `<color=#...>`
+
+# v1.2.7
+- Repair hover now shows coin costs again on Valheim 1.0.16 (vanilla UITooltip was overwriting the text every frame)
+- Same cost list is written onto SeneaL UI's repair tip, which otherwise keeps its generic "repairs one worn item" message
+
 # v1.2.5
 - Repair can spend coins from Swmarly Valheim QOL's Coin Purse as well as coins in inventory
 - Damaged items no longer show as Free when the material cost rounds down to 0 (for example a slightly worn Bronze Sword)

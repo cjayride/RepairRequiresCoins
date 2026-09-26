@@ -2,6 +2,13 @@
 
 namespace RepairRequiresMats
 {
+    internal class RepairOfferLine
+    {
+        public string Name;
+        public string Cost;
+        public string Note;
+    }
+
     internal class RepairItemData : ItemDrop.ItemData
     {
         public List<string> reqstring;

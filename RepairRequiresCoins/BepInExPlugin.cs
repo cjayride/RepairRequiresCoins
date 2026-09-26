@@ -8,13 +8,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.5")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.9")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.5";
+        public const string Version = "1.2.9";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;
@@ -26,6 +27,15 @@ namespace RepairRequiresMats {
         public static ConfigEntry<string> hasEnoughTooltipColor;
         public static ConfigEntry<string> notEnoughTooltipColor;
         private static List<ItemDrop.ItemData> orderedWornItems = new List<ItemDrop.ItemData>();
+        private static int paidRepairFrame = -1;
+        private static ItemDrop.ItemData paidRepairItem;
+        private static bool allowUnpaidCanRepair = true;
+        private static string repairTooltipTopic = "Repair an Item";
+        private static string repairTooltipBody = "";
+        private static string repairTooltipBodyPlain = "";
+        private static readonly List<RepairOfferLine> senealOfferLines = new List<RepairOfferLine>();
+        private static string senealStationLine = "";
+        private static int senealCoinCount = 0;
 
         private static BepInExPlugin context;
 
@@ -36,8 +46,10 @@ namespace RepairRequiresMats {
         private static MethodInfo swmarlyGetPocketCoins;
         private static MethodInfo swmarlySetPocketCoins;
         private const string SwmarlyQolGuid = "Swmarly.ValheimQOL";
+        private const string CurrencyPocketGuid = "Azumatt.CurrencyPocket";
         private const string SwmarlyCoinKey = "SwmarlyValheimQOL_Coins";
-        private const string SwmarlyLegacyCoinKey = "CoinPocket_CoinCount";
+        private const string CoinPocketCountKey = "CoinPocket_CoinCount";
+        private static bool currencyPocketLoaded;
 
         // added by cjayride
         public static WeaponAndArmorValues savedValues;
@@ -287,6 +299,12 @@ namespace RepairRequiresMats {
                 Dbgl($"Loaded Epic Loot assembly; epicLootIsMagic {epicLootIsMagic != null}, epicLootGetRarity {epicLootGetRarity != null}, epicLootGetEnchantCosts {epicLootGetEnchantCosts != null}");
             }
 
+            TryPatchSeneaLRepairTip();
+
+            currencyPocketLoaded = Chainloader.PluginInfos.ContainsKey(CurrencyPocketGuid);
+            if (currencyPocketLoaded)
+                Dbgl("Detected Azumatt CurrencyPocket; repairs can spend CoinPocket_CoinCount.");
+
             if (Chainloader.PluginInfos.ContainsKey(SwmarlyQolGuid)) {
                 Type pluginType = Chainloader.PluginInfos[SwmarlyQolGuid].Instance.GetType();
                 BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
@@ -318,100 +336,24 @@ namespace RepairRequiresMats {
                 if (!modEnabled.Value)
                     return;
 
-                if (!___m_tempWornItems.Any())
-                    return;
-
-                List<RepairItemData> freeRepairs = new List<RepairItemData>();
-                List<RepairItemData> enoughRepairs = new List<RepairItemData>();
-                List<RepairItemData> notEnoughRepairs = new List<RepairItemData>();
-                List<RepairItemData> unableRepairs = new List<RepairItemData>();
-                List<string> outstring = new List<string>();
-                foreach (ItemDrop.ItemData item in ___m_tempWornItems) {
-                    if (!CanEverBeRepaired(item))
-                        continue;
-                    if (!IsAtRequiredRepairStation(item)) {
-                        unableRepairs.Add(new RepairItemData(item));
-                        continue;
-                    }
-                    List<Piece.Requirement> reqs = RepairReqs(item);
-                    if (reqs == null) {
-                        freeRepairs.Add(new RepairItemData(item));
-                        continue;
-                    }
-                    List<string> reqstring = new List<string>();
-                    foreach (Piece.Requirement req in reqs) {
-                        if (req.m_amount == 0)
-                            continue;
-
-                        // changed by cjayride
-                        //reqstring.Add($"{req.m_amount}/{Player.m_localPlayer.GetInventory().CountItems(req.m_resItem.m_itemData.m_shared.m_name)} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
-                        reqstring.Add(FormatRequirementLine(req));
-                    }
-                    bool enough = true;
-                    foreach (Piece.Requirement requirement in reqs) {
-                        if (requirement.m_resItem) {
-                            int amount = requirement.m_amount;
-                            if (CountNamedItems(Player.m_localPlayer.GetInventory(), requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
-                                enough = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (!enough)
-                        notEnoughRepairs.Add(new RepairItemData(item, reqstring));
-                    else
-                        enoughRepairs.Add(new RepairItemData(item, reqstring));
-                }
-                orderedWornItems = new List<ItemDrop.ItemData>();
-                foreach (RepairItemData rid in freeRepairs) {
-                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: <color=#00FF00FF>Free</color>");
-                    orderedWornItems.Add(rid.item);
-                }
-                foreach (RepairItemData rid in enoughRepairs) {
-                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: {string.Join(", ", rid.reqstring)}");
-                    orderedWornItems.Add(rid.item);
-                }
-                foreach (RepairItemData rid in notEnoughRepairs) {
-                    outstring.Add($"<color=#FFFFFFFF>{Localization.instance.Localize(rid.item.m_shared.m_name)}</color>: {string.Join(", ", rid.reqstring)}");
-                    orderedWornItems.Add(rid.item);
-                }
-                foreach (RepairItemData rid in unableRepairs) {
-                    string itemName = Localization.instance.Localize(rid.item.m_shared.m_name);
-                    outstring.Add($"<color=#FFFFFFFF>{itemName}</color> - <color=#FF0000FF>{GetRepairNeedLabel(rid.item)}</color>");
-                    orderedWornItems.Add(rid.item);
-                }
+                RefreshRepairOffer(___m_tempWornItems);
                 ___m_tempWornItems = new List<ItemDrop.ItemData>(orderedWornItems);
+                ApplyRepairTooltipSource();
+                StyleRepairTooltipText();
+            }
+        }
 
-                if (!showAllRepairsInToolTip.Value)
+        [HarmonyPatch(typeof(UITooltip), "UpdateTextElements")]
+        static class UITooltip_UpdateTextElements_Patch {
+            static void Postfix(UITooltip __instance) {
+                if (!modEnabled.Value || __instance == null || string.IsNullOrEmpty(repairTooltipBody))
+                    return;
+                if (!IsRepairButtonTooltip(__instance))
                     return;
 
-                UITooltip tt = (UITooltip)typeof(UITooltip).GetField("m_current", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
-                GameObject go = (GameObject)typeof(UITooltip).GetField("m_tooltip", BindingFlags.NonPublic | BindingFlags.Static).GetValue(null);
-
-                if (go == null || tt.transform.name != "RepairButton")
-                    return;
-
-
-
-                // added by cjayride
-                if (outstring.Count == 0) {
-                    outstring.Add("Nothing to repair.");
-                }
-
-                int numberOfCoinsInInventory = CountNamedItems(Player.m_localPlayer.GetInventory(), "$item_coins");
-                outstring.Add("-------------------- \r\n <b><color=#FFFFFFFF>Coins</color>: <color=#FFFF00FF>" + numberOfCoinsInInventory.ToString() + "</color></b>");
-
-                Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
-                if (textChild == null)
-                    return;
-                TMP_Text tooltipText = textChild.GetComponent<TMP_Text>();
-                if (tooltipText == null)
-                    return;
-                tooltipText.richText = true;
-                tooltipText.alignment = TextAlignmentOptions.Bottom;
-                tooltipText.fontSize = 20;
-                string stationLine = GetCurrentStationLevelLabel();
-                tooltipText.text = $"<b><color=#{titleTooltipColor.Value}>Repair an Item</color></b>\r\n{stationLine}\r\n -------------------- \r\n" + string.Join("\r\n", outstring);
+                __instance.m_topic = repairTooltipTopic;
+                __instance.m_text = repairTooltipBody;
+                StyleRepairTooltipText();
             }
         }
 
@@ -425,50 +367,221 @@ namespace RepairRequiresMats {
                 if (!CanEverBeRepaired(item) || !IsAtRequiredRepairStation(item))
                     __result = false;
 
-                if (Environment.StackTrace.Contains("RepairOneItem") && !Environment.StackTrace.Contains("HaveRepairableItems") && __result == true && item?.m_shared != null && Player.m_localPlayer != null && orderedWornItems.Count > 0) {
-                    if (orderedWornItems[0] != item) {
-                        __result = false;
-                        return;
-                    }
-                    List<Piece.Requirement> reqs = RepairReqs(item, true);
-                    if (reqs == null)
-                        return;
+                if (paidRepairFrame == Time.frameCount && paidRepairItem == item)
+                    return;
 
-                    List<string> reqstring = new List<string>();
-                    foreach (Piece.Requirement req in reqs) {
-                        if (req?.m_resItem?.m_itemData?.m_shared == null)
-                            continue;
+                if (!allowUnpaidCanRepair && __result && HasPositiveCost(RepairReqs(item)) && (paidRepairFrame != Time.frameCount || paidRepairItem != item))
+                    __result = false;
+            }
+        }
 
-
-                        // changed by cjayride
-                        //reqstring.Add($"{req.m_amount}/{Player.m_localPlayer.GetInventory().CountItems(req.m_resItem.m_itemData.m_shared.m_name)} {Localization.instance.Localize(req.m_resItem.m_itemData.m_shared.m_name)}");
-                        reqstring.Add(FormatRequirementLine(req, false));
-                    }
-                    string outstring;
-
-                    bool enough = true;
-                    foreach (Piece.Requirement requirement in reqs) {
-                        if (requirement.m_resItem) {
-                            int amount = requirement.m_amount;
-                            if (CountNamedItems(Player.m_localPlayer.GetInventory(), requirement.m_resItem.m_itemData.m_shared.m_name) < amount) {
-                                enough = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (enough) {
-                        ConsumeRepairRequirements(Player.m_localPlayer, reqs);
-                        outstring = $"Used {string.Join(", ", reqstring)} to repair {Localization.instance.Localize(item.m_shared.m_name)}";
-                        __result = true;
-                    } else {
-                        outstring = $"Require {string.Join(", ", reqstring)} to repair {item.m_shared.m_name}";
-                        __result = false;
-                    }
-
-                    Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft, outstring, 0, null);
-                    Dbgl(outstring);
+        [HarmonyPatch(typeof(InventoryGui), "RepairOneItem")]
+        static class InventoryGui_RepairOneItem_Patch {
+            static bool Prefix() {
+                if (!modEnabled.Value)
+                    return true;
+                allowUnpaidCanRepair = false;
+                try {
+                    return TryPayForNextRepair();
+                } catch {
+                    return false;
                 }
             }
+
+            static void Postfix() {
+                allowUnpaidCanRepair = true;
+            }
+        }
+
+        private static bool HasEnoughRequirements(List<Piece.Requirement> reqs) {
+            if (reqs == null || Player.m_localPlayer == null)
+                return true;
+            foreach (Piece.Requirement requirement in reqs) {
+                if (!requirement.m_resItem)
+                    continue;
+                if (CountNamedItems(Player.m_localPlayer.GetInventory(), requirement.m_resItem.m_itemData.m_shared.m_name) < requirement.m_amount)
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool HasPositiveCost(List<Piece.Requirement> reqs) {
+            if (reqs == null)
+                return false;
+            foreach (Piece.Requirement req in reqs) {
+                if (req != null && req.m_amount > 0)
+                    return true;
+            }
+            return false;
+        }
+
+        private static void RefreshRepairOffer(IEnumerable<ItemDrop.ItemData> wornItems) {
+            List<RepairItemData> freeRepairs = new List<RepairItemData>();
+            List<RepairItemData> enoughRepairs = new List<RepairItemData>();
+            List<RepairItemData> notEnoughRepairs = new List<RepairItemData>();
+            List<RepairItemData> unableRepairs = new List<RepairItemData>();
+            List<string> richLines = new List<string>();
+            List<string> plainLines = new List<string>();
+            senealOfferLines.Clear();
+
+            IEnumerable<ItemDrop.ItemData> source = wornItems ?? Enumerable.Empty<ItemDrop.ItemData>();
+            foreach (ItemDrop.ItemData item in source) {
+                if (!CanEverBeRepaired(item))
+                    continue;
+                if (!IsAtRequiredRepairStation(item)) {
+                    unableRepairs.Add(new RepairItemData(item));
+                    continue;
+                }
+                List<Piece.Requirement> reqs = RepairReqs(item);
+                if (reqs == null) {
+                    freeRepairs.Add(new RepairItemData(item));
+                    continue;
+                }
+                List<string> reqRich = new List<string>();
+                foreach (Piece.Requirement req in reqs) {
+                    if (req.m_amount == 0)
+                        continue;
+                    reqRich.Add(FormatRequirementLine(req, true));
+                }
+                RepairItemData row = new RepairItemData(item, reqRich);
+                if (!HasEnoughRequirements(reqs))
+                    notEnoughRepairs.Add(row);
+                else
+                    enoughRepairs.Add(row);
+            }
+
+            orderedWornItems = new List<ItemDrop.ItemData>();
+            foreach (RepairItemData rid in freeRepairs) {
+                string name = Localization.instance.Localize(rid.item.m_shared.m_name);
+                richLines.Add("<color=#FFFFFFFF>" + name + "</color>: <color=#00FF00FF>Free</color>");
+                plainLines.Add(name + ": Free");
+                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "Free", Note = "" });
+                orderedWornItems.Add(rid.item);
+            }
+            foreach (RepairItemData rid in enoughRepairs) {
+                AddCostLines(rid, richLines, plainLines);
+            }
+            foreach (RepairItemData rid in notEnoughRepairs) {
+                AddCostLines(rid, richLines, plainLines);
+            }
+            foreach (RepairItemData rid in unableRepairs) {
+                string name = Localization.instance.Localize(rid.item.m_shared.m_name);
+                string need = GetRepairNeedLabel(rid.item);
+                richLines.Add("<color=#FFFFFFFF>" + name + "</color> - <color=#FF0000FF>" + need + "</color>");
+                plainLines.Add(name + " - " + need);
+                senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "", Note = need });
+                orderedWornItems.Add(rid.item);
+            }
+
+            senealCoinCount = Player.m_localPlayer != null ? CountNamedItems(Player.m_localPlayer.GetInventory(), "$item_coins") : 0;
+            senealStationLine = GetCurrentStationLevelLabel();
+
+            if (richLines.Count == 0)
+                richLines.Add("No worn items at this station.");
+
+            richLines.Add("-------------------- \r\n <b><color=#FFFFFFFF>Coins</color>: <color=#FFFF00FF>" + senealCoinCount + "</color></b>");
+
+            repairTooltipTopic = "Repair an Item";
+            repairTooltipBody = (string.IsNullOrEmpty(senealStationLine) ? "" : senealStationLine + "\r\n -------------------- \r\n") + string.Join("\r\n", richLines);
+            repairTooltipBodyPlain = BuildSeneaLPlainBody();
+
+            if (!showAllRepairsInToolTip.Value) {
+                repairTooltipBody = "Repair costs coins.\r\nCoins: " + senealCoinCount;
+                repairTooltipBodyPlain = repairTooltipBody;
+            }
+        }
+
+        private static void AddCostLines(RepairItemData rid, List<string> richLines, List<string> plainLines) {
+            string name = Localization.instance.Localize(rid.item.m_shared.m_name);
+            List<string> richReqs = rid.reqstring ?? new List<string>();
+            List<string> plainReqs = richReqs.Select(StripRichText).ToList();
+            richLines.Add("<color=#FFFFFFFF>" + name + "</color>: " + string.Join(", ", richReqs));
+            plainLines.Add(name + "  —  " + string.Join(", ", plainReqs));
+            senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = string.Join(", ", plainReqs), Note = "" });
+            orderedWornItems.Add(rid.item);
+        }
+
+        private static string BuildSeneaLPlainBody() {
+            List<string> lines = new List<string>();
+            foreach (RepairOfferLine line in senealOfferLines) {
+                if (!string.IsNullOrEmpty(line.Note) && string.IsNullOrEmpty(line.Cost))
+                    lines.Add(line.Name + "\n    " + line.Note);
+                else if (!string.IsNullOrEmpty(line.Cost))
+                    lines.Add(line.Name + "\n    " + line.Cost);
+                else
+                    lines.Add(line.Name);
+            }
+            if (lines.Count == 0)
+                lines.Add("No worn items at this station.");
+            return string.Join("\n\n", lines);
+        }
+
+        private static string StripRichText(string text) {
+            if (string.IsNullOrEmpty(text))
+                return text;
+            return System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", "");
+        }
+
+        private static void RebuildWornItemsFromInventory() {
+            List<ItemDrop.ItemData> worn = new List<ItemDrop.ItemData>();
+            if (Player.m_localPlayer != null)
+                Player.m_localPlayer.GetInventory().GetWornItems(worn);
+            RefreshRepairOffer(worn);
+        }
+
+        private static bool TryPayForNextRepair() {
+            paidRepairItem = null;
+            paidRepairFrame = -1;
+            if (Player.m_localPlayer == null)
+                return true;
+
+            List<ItemDrop.ItemData> worn = new List<ItemDrop.ItemData>();
+            Player.m_localPlayer.GetInventory().GetWornItems(worn);
+            RefreshRepairOffer(worn);
+
+            ItemDrop.ItemData freeItem = null;
+            foreach (ItemDrop.ItemData item in worn) {
+                if (!CanEverBeRepaired(item) || !IsAtRequiredRepairStation(item))
+                    continue;
+
+                List<Piece.Requirement> reqs = RepairReqs(item, true);
+                if (!HasPositiveCost(reqs)) {
+                    if (freeItem == null)
+                        freeItem = item;
+                    continue;
+                }
+
+                List<string> reqstring = new List<string>();
+                foreach (Piece.Requirement req in reqs) {
+                    if (req?.m_resItem?.m_itemData?.m_shared == null)
+                        continue;
+                    reqstring.Add(FormatRequirementLine(req, false));
+                }
+
+                if (!HasEnoughRequirements(reqs)) {
+                    Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft, "Require " + string.Join(", ", reqstring) + " to repair " + Localization.instance.Localize(item.m_shared.m_name), 0, null);
+                    return false;
+                }
+
+                ConsumeRepairRequirements(Player.m_localPlayer, reqs);
+                paidRepairItem = item;
+                paidRepairFrame = Time.frameCount;
+                Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft, "Used " + string.Join(", ", reqstring) + " to repair " + Localization.instance.Localize(item.m_shared.m_name), 0, null);
+                return true;
+            }
+
+            if (freeItem != null) {
+                paidRepairItem = freeItem;
+                paidRepairFrame = Time.frameCount;
+                return true;
+            }
+
+            if (worn.Count > 0) {
+                Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft, "Require coins to repair", 0, null);
+                return false;
+            }
+
+            return true;
         }
 
         private static bool IsCoinName(string itemName) {
@@ -501,9 +614,12 @@ namespace RepairRequiresMats {
 
             if (player.m_customData == null)
                 return 0;
+
+            if (currencyPocketLoaded && TryReadCustomCoins(player, CoinPocketCountKey, out int pocket))
+                return pocket;
             if (TryReadCustomCoins(player, SwmarlyCoinKey, out int coins))
                 return coins;
-            if (TryReadCustomCoins(player, SwmarlyLegacyCoinKey, out coins))
+            if (TryReadCustomCoins(player, CoinPocketCountKey, out coins))
                 return coins;
             return 0;
         }
@@ -527,7 +643,11 @@ namespace RepairRequiresMats {
 
             if (player.m_customData == null)
                 return;
-            player.m_customData[SwmarlyCoinKey] = coins.ToString();
+
+            if (currencyPocketLoaded || player.m_customData.ContainsKey(CoinPocketCountKey))
+                player.m_customData[CoinPocketCountKey] = coins.ToString();
+            if (!currencyPocketLoaded || player.m_customData.ContainsKey(SwmarlyCoinKey))
+                player.m_customData[SwmarlyCoinKey] = coins.ToString();
         }
 
         private static void SpendCoins(Player player, int amount) {
@@ -621,6 +741,118 @@ namespace RepairRequiresMats {
                 else
                     RemoveNamedItems(inventory, itemName, requirement.m_amount);
             }
+        }
+
+        private static void TryPatchSeneaLRepairTip() {
+            Type craftView = AccessTools.TypeByName("SeneaLUI.Inv.CraftView");
+            MethodInfo repairTip = craftView != null ? AccessTools.Method(craftView, "RepairTip") : null;
+            if (repairTip == null)
+                return;
+
+            Harmony harmony = new Harmony("cjayride.RepairRequiresCoins.seneal");
+            harmony.Patch(repairTip, postfix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLRepairTipPostfix)));
+            Dbgl("Patched SeneaL CraftView.RepairTip");
+        }
+
+        private static void SeneaLRepairTipPostfix(object __result) {
+            if (!modEnabled.Value || __result == null)
+                return;
+
+            if (senealOfferLines.Count == 0 && string.IsNullOrEmpty(repairTooltipBodyPlain))
+                RebuildWornItemsFromInventory();
+
+            Traverse tip = Traverse.Create(__result);
+            if (tip.Method("Reset", new[] { typeof(string), typeof(int) }).MethodExists())
+                tip.Method("Reset", new[] { typeof(string), typeof(int) }).GetValue("Repair", UnityEngine.Random.Range(1, int.MaxValue));
+
+            if (tip.Field("Title").FieldExists())
+                tip.Field("Title").SetValue("Repair");
+            if (tip.Field("Sub").FieldExists()) {
+                string sub = senealStationLine;
+                if (string.IsNullOrEmpty(sub))
+                    sub = "Coins: " + senealCoinCount;
+                else
+                    sub = sub + "   ·   Coins: " + senealCoinCount;
+                tip.Field("Sub").SetValue(sub);
+            }
+            if (tip.Field("Warn").FieldExists())
+                tip.Field("Warn").SetValue("");
+            if (tip.Field("RichText").FieldExists())
+                tip.Field("RichText").SetValue(false);
+            if (tip.Field("Source").FieldExists())
+                tip.Field("Source").SetValue("RepairRequiresCoins");
+
+            IList rows = tip.Field("Rows").FieldExists() ? tip.Field("Rows").GetValue() as IList : null;
+            rows?.Clear();
+            IList footer = tip.Field("Footer").FieldExists() ? tip.Field("Footer").GetValue() as IList : null;
+            footer?.Clear();
+
+            if (senealOfferLines.Count == 0) {
+                if (tip.Field("Body").FieldExists())
+                    tip.Field("Body").SetValue("No worn items at this station.");
+                return;
+            }
+
+            if (tip.Field("Body").FieldExists())
+                tip.Field("Body").SetValue("");
+
+            foreach (RepairOfferLine line in senealOfferLines) {
+                string right = !string.IsNullOrEmpty(line.Cost) ? line.Cost : line.Note;
+                if (tip.Method("AddRow", new[] { typeof(string), typeof(string), typeof(string) }).MethodExists())
+                    tip.Method("AddRow", new[] { typeof(string), typeof(string), typeof(string) }).GetValue(line.Name, right, "");
+            }
+
+            if (rows == null || rows.Count == 0) {
+                if (tip.Field("Body").FieldExists())
+                    tip.Field("Body").SetValue(BuildSeneaLPlainBody());
+            }
+        }
+
+        private static UITooltip GetRepairButtonTooltip() {
+            InventoryGui gui = InventoryGui.instance;
+            if (gui == null)
+                return null;
+            Button button = AccessTools.Field(typeof(InventoryGui), "m_repairButton")?.GetValue(gui) as Button;
+            return button ? button.GetComponent<UITooltip>() : null;
+        }
+
+        private static bool IsRepairButtonTooltip(UITooltip tooltip) {
+            if (tooltip == null)
+                return false;
+            if (tooltip.transform.name == "RepairButton")
+                return true;
+            UITooltip repair = GetRepairButtonTooltip();
+            return repair != null && tooltip == repair;
+        }
+
+        private static void ApplyRepairTooltipSource() {
+            UITooltip tooltip = GetRepairButtonTooltip();
+            if (tooltip == null)
+                return;
+            tooltip.m_topic = repairTooltipTopic;
+            tooltip.m_text = repairTooltipBody;
+        }
+
+        private static void StyleRepairTooltipText() {
+            GameObject go = AccessTools.Field(typeof(UITooltip), "m_tooltip")?.GetValue(null) as GameObject;
+            UITooltip current = AccessTools.Field(typeof(UITooltip), "m_current")?.GetValue(null) as UITooltip;
+            if (go == null || current == null || !IsRepairButtonTooltip(current))
+                return;
+
+            Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
+            TMP_Text tooltipText = textChild != null ? textChild.GetComponent<TMP_Text>() : null;
+            if (tooltipText == null)
+                return;
+
+            tooltipText.richText = true;
+            tooltipText.alignment = TextAlignmentOptions.Bottom;
+            tooltipText.fontSize = 20;
+            tooltipText.text = "<b><color=#" + titleTooltipColor.Value + ">" + repairTooltipTopic + "</color></b>\r\n" + repairTooltipBody;
+
+            Transform topicChild = Utils.FindChild(go.transform, "Topic", Utils.IterativeSearchType.DepthFirst);
+            TMP_Text topicText = topicChild != null ? topicChild.GetComponent<TMP_Text>() : null;
+            if (topicText != null)
+                topicText.text = repairTooltipTopic;
         }
 
         private static string FormatRequirementLine(Piece.Requirement req, bool colored = true) {
