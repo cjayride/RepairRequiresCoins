@@ -12,10 +12,10 @@ using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.10")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.11")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.10";
+        public const string Version = "1.2.11";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = true;

@@ -1,52 +1,99 @@
-# RepairRequiresCoins
+# 🪙 RepairRequiresCoins
 
-Updated for Valheim 1.0
+### Updated for Valheim 1.0
 
-A fork of [aedenthorn/RepairRequiresMats](https://github.com/aedenthorn/ValheimMods/tree/master/RepairRequiresMats)
+**Make repairs cost Coins.** RepairRequiresCoins adds a configurable coin-based repair economy to Valheim, letting you decide how much it costs to maintain your weapons, armor, tools, and other repairable equipment.
 
-[ThunderStore](https://thunderstore.io/c/valheim/p/cjayride/RepairRequiresCoins) | [GitHub](https://github.com/cjayride/RepairRequiresCoins)
+A fork of [aedenthorn's RepairRequiresMats](https://github.com/aedenthorn/ValheimMods/tree/master/RepairRequiresMats), updated and maintained for Valheim 1.0.
 
-# Repair with coins!
+**Links:** [Thunderstore](https://thunderstore.io/c/valheim/p/cjayride/RepairRequiresCoins/) · [GitHub](https://github.com/cjayride/RepairRequiresCoins)
 
-- Anything with durability that can be repaired (armor, weapons, etc) now requires Coins to repair it.
-- Items still repair at the station they were crafted at (for example a wooden hammer at a workbench, an iron axe at a forge).
-- Repair uses the vanilla station rule: the right station type, at the recipe's minimum level. Item quality does not raise the bench needed to repair. A quality 3 Iron Axe may need a higher forge to upgrade, but it repairs at the same forge level as a quality 1 Iron Axe.
+## ⚒️ How It Works
 
-# Setup
+- **Repairs cost Coins.** Repairable items require Coins based on the materials used to craft them.
+- **Use the correct crafting station.** Items must be repaired at the station type where they were crafted, such as a Workbench for a wooden hammer or a Forge for an iron axe.
+- **Vanilla station-level rules apply.** Repairs require the correct station at the recipe's minimum level. Item quality does not increase the station level required to repair it.
+- **Customize the economy.** Adjust material exchange rates to match your server's progression and coin drops.
+- **Optional material costs.** Choose between coin-only repairs or charging Coins alongside the original repair materials.
 
-- There is only 1 config file: *cjayride.RepairRequiresCoins.cfg*
+## ⚙️ Configuration
 
-- The config file contains values for materials used to build items.
+The mod uses a single configuration file:
 
-- The more expensive the material, the more costly in Coins to repair an item. A value of -1 means no cost to repair that material of an item. It works by counting the number of materials necessary to create the item, and then multiplies that by the configured exchange rate. This gives the Coin cost to repair.
+`BepInEx/config/cjayride.RepairRequiresCoins.cfg`
 
-- You may need to adjust the values to match the economy and Coin drops of your server.
+### Material Exchange Rates
 
-- The default values were configured to match the coin economy of a cjaycraft modpack server https://valheim.thunderstore.io/package/cjayride/cjaycraft_ultimate_modpack/
+The configuration defines the Coin value of materials used to craft items. Repair costs are calculated using the quantities of crafting materials required by the item's recipe and their configured exchange rates.
 
-- EpicLoot is optional. If it is installed, magic items include extra enchant-cost materials in the coin calculation.
-- Coin purses are optional. Repair spends inventory coins first, then coins in [Swmarly Valheim QOL](https://thunderstore.io/c/valheim/p/Swmarly/SwmarlyValheimQOL/) or [Azumatt CurrencyPocket](https://valheim.hexium.gg/mods/Azumatt/CurrencyPocket).
-- [SeneaL UI](https://thunderstore.io/c/valheim/p/seneaL/SeneaL_UI/) is optional. Its repair tip lists this mod's costs and shows each item's icon.
+- More expensive materials can be assigned higher Coin values.
+- Set a material's value to `-1` to make that material contribute no repair cost.
+- Wood, Stone, and Fine Wood have default values configured for the mod's economy.
+- You may need to adjust exchange rates to suit your server's economy and Coin drop rates.
 
-- `CoinOnly = true` (default) repairs with coins only. Set `CoinOnly = false` to charge coins plus the original repair materials (for example iron for an iron axe). Those materials are listed on the repair tooltip.
+The default values were designed for the [cjaycraft modpack](https://valheim.thunderstore.io/package/cjayride/cjaycraft_ultimate_modpack/).
 
-# Repair tooltip
+### Coin-Only Repairs
 
-Hover the repair button to see worn items at the current station.
+The setting `CoinOnly` controls whether repairs consume only Coins or also require the original crafting materials.
 
-- Item names stay white.
-- **Free** is green.
-- Material amounts (for example `1 Iron`) are green if you have enough, red if you do not.
-- Coin amounts are yellow if you can pay, red if you cannot. The word Coins stays white.
-- `Needs Workbench Lvl: 1` (wrong station or station too low) is red.
+| Setting | Behavior |
+|---|---|
+| `CoinOnly = true` | Repairs consume Coins only. **Default.** |
+| `CoinOnly = false` | Repairs consume Coins and the original repair materials. |
 
-# Contact
-- 𝕏: x.com/cjayride
+When material costs are enabled, the required materials are shown in the repair tooltip.
 
-- Discord: discord.gg/cjayride (find me at the top of the user list) "cjayride"
+## 🧩 Optional Mod Compatibility
 
-- Twitch: twitch.tv/cjayride
+These integrations are optional:
 
-# AI Generated
+- **[EpicLoot](https://thunderstore.io/c/valheim/p/RandyKnapp/EpicLoot/)** — Includes additional enchantment-related material costs in the Coin calculation for magic items when EpicLoot is installed.
+- **[Swmarly Valheim QOL](https://thunderstore.io/c/valheim/p/Swmarly/SwmarlyValheimQOL/)** — Repairs can use Coins stored in its Coin Purse.
+- **[Azumatt CurrencyPocket](https://valheim.hexium.gg/mods/Azumatt/CurrencyPocket)** — Repairs can also spend Coins stored in CurrencyPocket.
+- **[SeneaL UI](https://thunderstore.io/c/valheim/p/seneaL/SeneaL_UI/)** — The repair tooltip can display this mod's repair costs, including each item's icon.
 
-This code was not AI Generated, however, AI was used to verify that it works with the new version of the game.
+When supported coin storage mods are installed, repair payments use Coins in your inventory first, followed by Coins available in the supported purse or pocket.
+
+## 📋 Repair Tooltip
+
+Hover over the repair button to view worn items at the current crafting station and their repair costs.
+
+The tooltip uses color-coded information to make costs easy to read:
+
+| Display | Meaning |
+|---|---|
+| White item name | Item that needs repair |
+| **Green `Free`** | No Coin cost |
+| Green material amount | You have enough materials |
+| Red material amount | You lack the required materials |
+| Yellow Coin amount | You can afford the repair |
+| Red Coin amount | You cannot afford the repair |
+| White `Coins` label | Currency name |
+| Red `Needs Workbench Lvl: 1` or similar | Wrong station or insufficient station level |
+
+Items that cannot be repaired under vanilla rules are excluded from the repair list.
+
+## 🛠️ Build
+
+Build from the project directory:
+
+```bash
+dotnet build -c Release
+```
+
+## 🙏 Credits
+
+- **Original mod:** [aedenthorn — RepairRequiresMats](https://github.com/aedenthorn/ValheimMods/tree/master/RepairRequiresMats)
+- **Fork and Valheim 1.0 update:** cjayride
+
+## 💬 Contact
+
+- **X:** [@cjayride](https://x.com/cjayride)
+- **Discord:** [discord.gg/cjayride](https://discord.gg/cjayride) — Find `cjayride` near the top of the user list.
+- **Twitch:** [twitch.tv/cjayride](https://twitch.tv/cjayride)
+
+## 🤖 AI Disclosure
+
+The code was **not AI-generated**. AI was used to help verify compatibility with the updated game version.
+

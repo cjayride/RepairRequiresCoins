@@ -1,3 +1,7 @@
+# v1.2.11
+- Verified against Valheim 1.0.21 (Release build).
+- BepInEx dependency set to `denikson-BepInExPack_Valheim-5.4.2360`.
+
 # v1.2.10
 - SeneaL UI repair list shows each item's icon to the left of the name
 
