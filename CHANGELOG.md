@@ -1,3 +1,7 @@
+# v1.2.12
+- Verified against Valheim 1.0.21 (Steam buildid 26249040).
+- Faster inventory repair UI: skip rebuilding costs every frame, cache recipes and material rates, use vanilla CountItems/RemoveItem, and avoid per-frame reflection and tooltip tree searches.
+
 # v1.2.11
 - Verified against Valheim 1.0.21 (Release build).
 - BepInEx dependency set to `denikson-BepInExPack_Valheim-5.4.2360`.

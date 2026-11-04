@@ -5,20 +5,21 @@ using HarmonyLib;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.11")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.12")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.11";
+        public const string Version = "1.2.12";
         public const string ModName = "Repair Requires Coins";
 
-        private static bool isDebug = true;
+        private static bool isDebug = false;
 
         public static ConfigEntry<bool> modEnabled;
         public static ConfigEntry<bool> showAllRepairsInToolTip;
@@ -46,11 +47,30 @@ namespace RepairRequiresMats {
         private static MethodInfo epicLootGetEnchantCosts;
         private static MethodInfo swmarlyGetPocketCoins;
         private static MethodInfo swmarlySetPocketCoins;
+        private static readonly object[] invokeOne = new object[1];
+        private static readonly object[] invokeTwo = new object[2];
         private const string SwmarlyQolGuid = "Swmarly.ValheimQOL";
         private const string CurrencyPocketGuid = "Azumatt.CurrencyPocket";
         private const string SwmarlyCoinKey = "SwmarlyValheimQOL_Coins";
         private const string CoinPocketCountKey = "CoinPocket_CoinCount";
         private static bool currencyPocketLoaded;
+
+        private static readonly Dictionary<string, float> materialRates = new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<ItemDrop.ItemData, Recipe> recipeCache = new Dictionary<ItemDrop.ItemData, Recipe>(ItemRefComparer.Instance);
+        private static int recipeCacheFrame = -1;
+        private static ItemDrop cachedCoinsDrop;
+        private static int cachedCoinsDropFrame = -1;
+        private static int lastOfferStamp;
+        private static FieldInfo inventoryGuiRepairButton;
+        private static FieldInfo uiTooltipCurrent;
+        private static FieldInfo uiTooltipObject;
+        private static FieldInfo stationExtensionTimer;
+        private static FieldInfo stationAttachedExtensions;
+        private static MethodInfo stationGetExtensions;
+        private static TMP_Text cachedTooltipText;
+        private static TMP_Text cachedTopicText;
+        private static GameObject cachedTooltipGo;
+        private static string lastStyledBody;
 
         // added by cjayride
         public static WeaponAndArmorValues savedValues;
@@ -228,10 +248,8 @@ namespace RepairRequiresMats {
                     savedValues.SerpentScale = SerpentScale.Value;
                     savedValues.WorldTreeFragment = WorldTreeFragment.Value;
                     savedValues.BurningWorldTreeFragment = BurningWorldTreeFragment.Value;
+                    savedValues.Root = Root.Value;
                     savedValues.Stone = Stone.Value;
-
-                //Dbgl("RRM: Values loaded from config file");
-                //Dbgl("RRM: Test value: savedValues.BurningWorldTreeFragment = " + savedValues.BurningWorldTreeFragment.ToString());
 
             } catch {
 
@@ -290,6 +308,8 @@ namespace RepairRequiresMats {
 
             }
 
+            RebuildMaterialRates();
+            CacheStationAccess();
         }
         private void Start() {
             if (Chainloader.PluginInfos.ContainsKey("randyknapp.mods.epicloot")) {
@@ -338,7 +358,7 @@ namespace RepairRequiresMats {
                     return;
 
                 RefreshRepairOffer(___m_tempWornItems);
-                ___m_tempWornItems = new List<ItemDrop.ItemData>(orderedWornItems);
+                CopyWornOrder(___m_tempWornItems);
                 ApplyRepairTooltipSource();
                 StyleRepairTooltipText();
             }
@@ -416,60 +436,91 @@ namespace RepairRequiresMats {
             return false;
         }
 
+        private static void CopyWornOrder(List<ItemDrop.ItemData> dest) {
+            if (dest == null)
+                return;
+            dest.Clear();
+            for (int i = 0; i < orderedWornItems.Count; i++)
+                dest.Add(orderedWornItems[i]);
+        }
+
+        private static int ComputeOfferStamp(IEnumerable<ItemDrop.ItemData> wornItems) {
+            int stamp = 17;
+            if (wornItems != null) {
+                foreach (ItemDrop.ItemData item in wornItems) {
+                    if (item == null)
+                        continue;
+                    stamp = (stamp * 31) + RuntimeHelpers.GetHashCode(item);
+                    stamp = (stamp * 31) + item.m_quality;
+                    stamp = (stamp * 31) + (int)(item.m_durability * 10f);
+                }
+            }
+            stamp = (stamp * 31) + CountNamedItems(Player.m_localPlayer != null ? Player.m_localPlayer.GetInventory() : null, "$item_coins");
+            CraftingStation current = Player.m_localPlayer != null ? Player.m_localPlayer.GetCurrentCraftingStation() : null;
+            stamp = (stamp * 31) + (current ? current.GetInstanceID() : 0);
+            stamp = (stamp * 31) + GetLiveStationLevel(current);
+            stamp = (stamp * 31) + (showAllRepairsInToolTip.Value ? 1 : 0);
+            stamp = (stamp * 31) + (coinOnly.Value ? 1 : 0);
+            return stamp;
+        }
+
         private static void RefreshRepairOffer(IEnumerable<ItemDrop.ItemData> wornItems) {
+            int stamp = ComputeOfferStamp(wornItems);
+            if (stamp == lastOfferStamp && orderedWornItems.Count >= 0 && repairTooltipBody.Length > 0)
+                return;
+            lastOfferStamp = stamp;
+
             List<RepairItemData> freeRepairs = new List<RepairItemData>();
             List<RepairItemData> enoughRepairs = new List<RepairItemData>();
             List<RepairItemData> notEnoughRepairs = new List<RepairItemData>();
             List<RepairItemData> unableRepairs = new List<RepairItemData>();
             List<string> richLines = new List<string>();
-            List<string> plainLines = new List<string>();
             senealOfferLines.Clear();
+            orderedWornItems.Clear();
 
-            IEnumerable<ItemDrop.ItemData> source = wornItems ?? Enumerable.Empty<ItemDrop.ItemData>();
-            foreach (ItemDrop.ItemData item in source) {
-                if (!CanEverBeRepaired(item))
-                    continue;
-                if (!IsAtRequiredRepairStation(item)) {
-                    unableRepairs.Add(new RepairItemData(item));
-                    continue;
-                }
-                List<Piece.Requirement> reqs = RepairReqs(item);
-                if (reqs == null) {
-                    freeRepairs.Add(new RepairItemData(item));
-                    continue;
-                }
-                List<string> reqRich = new List<string>();
-                foreach (Piece.Requirement req in reqs) {
-                    if (req.m_amount == 0)
+            if (wornItems != null) {
+                foreach (ItemDrop.ItemData item in wornItems) {
+                    if (!CanEverBeRepaired(item))
                         continue;
-                    reqRich.Add(FormatRequirementLine(req, true));
+                    if (!IsAtRequiredRepairStation(item)) {
+                        unableRepairs.Add(new RepairItemData(item));
+                        continue;
+                    }
+                    List<Piece.Requirement> reqs = RepairReqs(item);
+                    if (reqs == null) {
+                        freeRepairs.Add(new RepairItemData(item));
+                        continue;
+                    }
+                    List<string> reqRich = new List<string>();
+                    List<string> reqPlain = new List<string>();
+                    foreach (Piece.Requirement req in reqs) {
+                        if (req.m_amount == 0)
+                            continue;
+                        reqRich.Add(FormatRequirementLine(req, true));
+                        reqPlain.Add(FormatRequirementLine(req, false));
+                    }
+                    RepairItemData row = new RepairItemData(item, reqRich, reqPlain);
+                    if (!HasEnoughRequirements(reqs))
+                        notEnoughRepairs.Add(row);
+                    else
+                        enoughRepairs.Add(row);
                 }
-                RepairItemData row = new RepairItemData(item, reqRich);
-                if (!HasEnoughRequirements(reqs))
-                    notEnoughRepairs.Add(row);
-                else
-                    enoughRepairs.Add(row);
             }
 
-            orderedWornItems = new List<ItemDrop.ItemData>();
             foreach (RepairItemData rid in freeRepairs) {
                 string name = Localization.instance.Localize(rid.item.m_shared.m_name);
                 richLines.Add("<color=#FFFFFFFF>" + name + "</color>: <color=#00FF00FF>Free</color>");
-                plainLines.Add(name + ": Free");
                 senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "Free", Note = "", Icon = GetItemIcon(rid.item) });
                 orderedWornItems.Add(rid.item);
             }
-            foreach (RepairItemData rid in enoughRepairs) {
-                AddCostLines(rid, richLines, plainLines);
-            }
-            foreach (RepairItemData rid in notEnoughRepairs) {
-                AddCostLines(rid, richLines, plainLines);
-            }
+            foreach (RepairItemData rid in enoughRepairs)
+                AddCostLines(rid, richLines);
+            foreach (RepairItemData rid in notEnoughRepairs)
+                AddCostLines(rid, richLines);
             foreach (RepairItemData rid in unableRepairs) {
                 string name = Localization.instance.Localize(rid.item.m_shared.m_name);
                 string need = GetRepairNeedLabel(rid.item);
                 richLines.Add("<color=#FFFFFFFF>" + name + "</color> - <color=#FF0000FF>" + need + "</color>");
-                plainLines.Add(name + " - " + need);
                 senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = "", Note = need, Icon = GetItemIcon(rid.item) });
                 orderedWornItems.Add(rid.item);
             }
@@ -492,38 +543,34 @@ namespace RepairRequiresMats {
             }
         }
 
-        private static void AddCostLines(RepairItemData rid, List<string> richLines, List<string> plainLines) {
+        private static void AddCostLines(RepairItemData rid, List<string> richLines) {
             string name = Localization.instance.Localize(rid.item.m_shared.m_name);
             List<string> richReqs = rid.reqstring ?? new List<string>();
-            List<string> plainReqs = richReqs.Select(StripRichText).ToList();
-            richLines.Add("<color=#FFFFFFFF>" + name + "</color>: " + string.Join(", ", richReqs));
-            plainLines.Add(name + "  —  " + string.Join(", ", plainReqs));
-            senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = string.Join(", ", plainReqs), Note = "", Icon = GetItemIcon(rid.item) });
+            List<string> plainReqs = rid.reqplain ?? new List<string>();
+            richLines.Add("<color=#FFFFFFFF>" + name + "</color>: " + string.Join(", ", richReqs.ToArray()));
+            senealOfferLines.Add(new RepairOfferLine { Name = name, Cost = string.Join(", ", plainReqs.ToArray()), Note = "", Icon = GetItemIcon(rid.item) });
             orderedWornItems.Add(rid.item);
         }
 
         private static string BuildSeneaLPlainBody() {
-            List<string> lines = new List<string>();
-            foreach (RepairOfferLine line in senealOfferLines) {
+            if (senealOfferLines.Count == 0)
+                return "No worn items at this station.";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < senealOfferLines.Count; i++) {
+                RepairOfferLine line = senealOfferLines[i];
+                if (i > 0)
+                    sb.Append("\n\n");
+                sb.Append(line.Name);
                 if (!string.IsNullOrEmpty(line.Note) && string.IsNullOrEmpty(line.Cost))
-                    lines.Add(line.Name + "\n    " + line.Note);
+                    sb.Append("\n    ").Append(line.Note);
                 else if (!string.IsNullOrEmpty(line.Cost))
-                    lines.Add(line.Name + "\n    " + line.Cost);
-                else
-                    lines.Add(line.Name);
+                    sb.Append("\n    ").Append(line.Cost);
             }
-            if (lines.Count == 0)
-                lines.Add("No worn items at this station.");
-            return string.Join("\n\n", lines);
-        }
-
-        private static string StripRichText(string text) {
-            if (string.IsNullOrEmpty(text))
-                return text;
-            return System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", "");
+            return sb.ToString();
         }
 
         private static void RebuildWornItemsFromInventory() {
+            lastOfferStamp = int.MinValue;
             List<ItemDrop.ItemData> worn = new List<ItemDrop.ItemData>();
             if (Player.m_localPlayer != null)
                 Player.m_localPlayer.GetInventory().GetWornItems(worn);
@@ -536,6 +583,8 @@ namespace RepairRequiresMats {
             if (Player.m_localPlayer == null)
                 return true;
 
+            lastOfferStamp = int.MinValue;
+            lastExtRefreshFrame = -999;
             List<ItemDrop.ItemData> worn = new List<ItemDrop.ItemData>();
             Player.m_localPlayer.GetInventory().GetWornItems(worn);
             RefreshRepairOffer(worn);
@@ -593,11 +642,7 @@ namespace RepairRequiresMats {
             if (inventory == null || string.IsNullOrEmpty(itemName))
                 return 0;
 
-            int count = 0;
-            foreach (ItemDrop.ItemData item in inventory.GetAllItems()) {
-                if (item?.m_shared?.m_name == itemName)
-                    count += item.m_stack;
-            }
+            int count = inventory.CountItems(itemName, -1, true);
             if (IsCoinName(itemName) && Player.m_localPlayer != null && inventory == Player.m_localPlayer.GetInventory())
                 count += GetPocketCoins(Player.m_localPlayer);
             return count;
@@ -609,7 +654,8 @@ namespace RepairRequiresMats {
 
             if (swmarlyGetPocketCoins != null) {
                 try {
-                    return Math.Max(0, (int)swmarlyGetPocketCoins.Invoke(null, new object[] { player }));
+                    invokeOne[0] = player;
+                    return Math.Max(0, (int)swmarlyGetPocketCoins.Invoke(null, invokeOne));
                 } catch { }
             }
 
@@ -637,7 +683,9 @@ namespace RepairRequiresMats {
             coins = Math.Max(0, coins);
             if (swmarlySetPocketCoins != null) {
                 try {
-                    swmarlySetPocketCoins.Invoke(null, new object[] { player, coins });
+                    invokeTwo[0] = player;
+                    invokeTwo[1] = coins;
+                    swmarlySetPocketCoins.Invoke(null, invokeTwo);
                     return;
                 } catch { }
             }
@@ -656,13 +704,7 @@ namespace RepairRequiresMats {
                 return;
 
             Inventory inventory = player.GetInventory();
-            int inventoryCoins = 0;
-            if (inventory != null) {
-                foreach (ItemDrop.ItemData item in inventory.GetAllItems()) {
-                    if (item?.m_shared?.m_name == "$item_coins")
-                        inventoryCoins += item.m_stack;
-                }
-            }
+            int inventoryCoins = inventory != null ? inventory.CountItems("$item_coins", -1, true) : 0;
 
             int fromInventory = Math.Min(inventoryCoins, amount);
             if (fromInventory > 0)
@@ -673,56 +715,10 @@ namespace RepairRequiresMats {
                 SetPocketCoins(player, GetPocketCoins(player) - remainder);
         }
 
-        private static MethodInfo inventoryRemoveByName;
-
         private static void RemoveNamedItems(Inventory inventory, string itemName, int amount) {
             if (inventory == null || string.IsNullOrEmpty(itemName) || amount <= 0)
                 return;
-
-            if (inventoryRemoveByName == null) {
-                MethodInfo best = null;
-                foreach (MethodInfo method in AccessTools.GetDeclaredMethods(typeof(Inventory))) {
-                    if (method.Name != "RemoveItem")
-                        continue;
-                    ParameterInfo[] parameters = method.GetParameters();
-                    if (parameters.Length < 2 || parameters[0].ParameterType != typeof(string) || parameters[1].ParameterType != typeof(int))
-                        continue;
-                    if (best == null || parameters.Length < best.GetParameters().Length)
-                        best = method;
-                }
-                inventoryRemoveByName = best;
-            }
-
-            if (inventoryRemoveByName != null) {
-                ParameterInfo[] parameters = inventoryRemoveByName.GetParameters();
-                object[] args = new object[parameters.Length];
-                args[0] = itemName;
-                args[1] = amount;
-                for (int i = 2; i < parameters.Length; i++) {
-                    if (parameters[i].HasDefaultValue)
-                        args[i] = parameters[i].DefaultValue;
-                    else if (parameters[i].ParameterType == typeof(int))
-                        args[i] = -1;
-                    else if (parameters[i].ParameterType == typeof(bool))
-                        args[i] = true;
-                    else
-                        args[i] = null;
-                }
-                inventoryRemoveByName.Invoke(inventory, args);
-                return;
-            }
-
-            List<ItemDrop.ItemData> items = inventory.GetAllItems();
-            for (int i = items.Count - 1; i >= 0 && amount > 0; i--) {
-                ItemDrop.ItemData item = items[i];
-                if (item?.m_shared?.m_name != itemName)
-                    continue;
-                int take = Mathf.Min(item.m_stack, amount);
-                item.m_stack -= take;
-                amount -= take;
-                if (item.m_stack <= 0)
-                    inventory.RemoveItem(item);
-            }
+            inventory.RemoveItem(itemName, amount, -1, true);
         }
 
         // Player.ConsumeResources(Requirement[], int, int) was removed in later Valheim versions
@@ -937,7 +933,9 @@ namespace RepairRequiresMats {
             InventoryGui gui = InventoryGui.instance;
             if (gui == null)
                 return null;
-            Button button = AccessTools.Field(typeof(InventoryGui), "m_repairButton")?.GetValue(gui) as Button;
+            if (inventoryGuiRepairButton == null)
+                inventoryGuiRepairButton = AccessTools.Field(typeof(InventoryGui), "m_repairButton");
+            Button button = inventoryGuiRepairButton != null ? inventoryGuiRepairButton.GetValue(gui) as Button : null;
             return button ? button.GetComponent<UITooltip>() : null;
         }
 
@@ -959,25 +957,40 @@ namespace RepairRequiresMats {
         }
 
         private static void StyleRepairTooltipText() {
-            GameObject go = AccessTools.Field(typeof(UITooltip), "m_tooltip")?.GetValue(null) as GameObject;
-            UITooltip current = AccessTools.Field(typeof(UITooltip), "m_current")?.GetValue(null) as UITooltip;
+            if (uiTooltipObject == null)
+                uiTooltipObject = AccessTools.Field(typeof(UITooltip), "m_tooltip");
+            if (uiTooltipCurrent == null)
+                uiTooltipCurrent = AccessTools.Field(typeof(UITooltip), "m_current");
+            GameObject go = uiTooltipObject != null ? uiTooltipObject.GetValue(null) as GameObject : null;
+            UITooltip current = uiTooltipCurrent != null ? uiTooltipCurrent.GetValue(null) as UITooltip : null;
             if (go == null || current == null || !IsRepairButtonTooltip(current))
                 return;
 
-            Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
-            TMP_Text tooltipText = textChild != null ? textChild.GetComponent<TMP_Text>() : null;
+            if (cachedTooltipGo != go) {
+                cachedTooltipGo = go;
+                Transform textChild = Utils.FindChild(go.transform, "Text", Utils.IterativeSearchType.DepthFirst);
+                cachedTooltipText = textChild != null ? textChild.GetComponent<TMP_Text>() : null;
+                Transform topicChild = Utils.FindChild(go.transform, "Topic", Utils.IterativeSearchType.DepthFirst);
+                cachedTopicText = topicChild != null ? topicChild.GetComponent<TMP_Text>() : null;
+                lastStyledBody = null;
+            }
+
+            TMP_Text tooltipText = cachedTooltipText;
             if (tooltipText == null)
                 return;
+
+            string styled = "<b><color=#" + titleTooltipColor.Value + ">" + repairTooltipTopic + "</color></b>\r\n" + repairTooltipBody;
+            if (lastStyledBody == styled)
+                return;
+            lastStyledBody = styled;
 
             tooltipText.richText = true;
             tooltipText.alignment = TextAlignmentOptions.Bottom;
             tooltipText.fontSize = 20;
-            tooltipText.text = "<b><color=#" + titleTooltipColor.Value + ">" + repairTooltipTopic + "</color></b>\r\n" + repairTooltipBody;
+            tooltipText.text = styled;
 
-            Transform topicChild = Utils.FindChild(go.transform, "Topic", Utils.IterativeSearchType.DepthFirst);
-            TMP_Text topicText = topicChild != null ? topicChild.GetComponent<TMP_Text>() : null;
-            if (topicText != null)
-                topicText.text = repairTooltipTopic;
+            if (cachedTopicText != null)
+                cachedTopicText.text = repairTooltipTopic;
         }
 
         private static string FormatRequirementLine(Piece.Requirement req, bool colored = true) {
@@ -1000,7 +1013,7 @@ namespace RepairRequiresMats {
             if (item?.m_shared == null || !item.m_shared.m_canBeReparied)
                 return false;
 
-            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            Recipe recipe = GetCachedRecipe(item);
             if (recipe == null)
                 return false;
 
@@ -1039,7 +1052,7 @@ namespace RepairRequiresMats {
             if (!current)
                 return false;
 
-            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            Recipe recipe = GetCachedRecipe(item);
             if (recipe == null || !RecipeRepairsAtStation(recipe, current))
                 return false;
 
@@ -1049,6 +1062,7 @@ namespace RepairRequiresMats {
         private static CraftingStation liveLevelStation;
         private static int liveLevelValue;
         private static int liveLevelFrame;
+        private static int lastExtRefreshFrame = -999;
 
         // Count only extensions that still exist. Destroyed bellows/anvils can linger in the cached list.
         private static int GetLiveStationLevel(CraftingStation station) {
@@ -1059,16 +1073,15 @@ namespace RepairRequiresMats {
             if (liveLevelFrame == frame && liveLevelStation == station)
                 return liveLevelValue;
 
-            FieldInfo timer = AccessTools.Field(typeof(CraftingStation), "m_updateExtensionTimer");
-            if (timer != null)
-                timer.SetValue(station, 999f);
+            if (frame - lastExtRefreshFrame >= 20) {
+                lastExtRefreshFrame = frame;
+                if (stationExtensionTimer != null)
+                    stationExtensionTimer.SetValue(station, 999f);
+                if (stationGetExtensions != null)
+                    stationGetExtensions.Invoke(station, null);
+            }
 
-            MethodInfo refresh = AccessTools.Method(typeof(CraftingStation), "GetExtensions");
-            if (refresh != null)
-                refresh.Invoke(station, null);
-
-            FieldInfo listField = AccessTools.Field(typeof(CraftingStation), "m_attachedExtensions");
-            IList list = listField != null ? listField.GetValue(station) as IList : null;
+            IList list = stationAttachedExtensions != null ? stationAttachedExtensions.GetValue(station) as IList : null;
             int extras = 0;
             if (list != null) {
                 foreach (object ext in list) {
@@ -1095,7 +1108,7 @@ namespace RepairRequiresMats {
         }
 
         private static string GetRepairNeedLabel(ItemDrop.ItemData item) {
-            Recipe recipe = ObjectDB.instance != null ? ObjectDB.instance.GetRecipe(item) : null;
+            Recipe recipe = GetCachedRecipe(item);
             if (recipe == null)
                 return "Needs recipe";
 
@@ -1107,31 +1120,77 @@ namespace RepairRequiresMats {
             return "Needs " + stationName + " Lvl: " + GetRequiredRepairStationLevel(recipe);
         }
 
+        private static void CacheStationAccess() {
+            stationExtensionTimer = AccessTools.Field(typeof(CraftingStation), "m_updateExtensionTimer");
+            stationGetExtensions = AccessTools.Method(typeof(CraftingStation), "GetExtensions");
+            stationAttachedExtensions = AccessTools.Field(typeof(CraftingStation), "m_attachedExtensions");
+            inventoryGuiRepairButton = AccessTools.Field(typeof(InventoryGui), "m_repairButton");
+            uiTooltipCurrent = AccessTools.Field(typeof(UITooltip), "m_current");
+            uiTooltipObject = AccessTools.Field(typeof(UITooltip), "m_tooltip");
+        }
+
+        private static void RebuildMaterialRates() {
+            materialRates.Clear();
+            if (savedValues == null)
+                return;
+            foreach (PropertyInfo prop in typeof(WeaponAndArmorValues).GetProperties())
+                materialRates[prop.Name] = Convert.ToSingle(prop.GetValue(savedValues, null));
+        }
+
+        private static Recipe GetCachedRecipe(ItemDrop.ItemData item) {
+            if (item == null || ObjectDB.instance == null)
+                return null;
+            int frame = Time.frameCount;
+            if (recipeCacheFrame != frame) {
+                recipeCache.Clear();
+                recipeCacheFrame = frame;
+            }
+            Recipe recipe;
+            if (recipeCache.TryGetValue(item, out recipe))
+                return recipe;
+            recipe = ObjectDB.instance.GetRecipe(item);
+            recipeCache[item] = recipe;
+            return recipe;
+        }
+
         private static ItemDrop GetCoinsItemDrop() {
+            int frame = Time.frameCount;
+            if (cachedCoinsDropFrame == frame && cachedCoinsDrop)
+                return cachedCoinsDrop;
+
             GameObject prefab = ObjectDB.instance != null ? ObjectDB.instance.GetItemPrefab("Coins") : null;
             if (prefab == null && ZNetScene.instance != null)
                 prefab = ZNetScene.instance.GetPrefab("Coins");
-            return prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+            cachedCoinsDrop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+            cachedCoinsDropFrame = frame;
+            return cachedCoinsDrop;
         }
 
         private static List<Piece.Requirement> RepairReqs(ItemDrop.ItemData item, bool log = false) {
             float percent = (item.GetMaxDurability() - item.m_durability) / item.GetMaxDurability();
-            Recipe fullRecipe = ObjectDB.instance.GetRecipe(item);
+            Recipe fullRecipe = GetCachedRecipe(item);
             if (fullRecipe is null)
                 return null;
-            var fullReqs = new List<Piece.Requirement>(fullRecipe.m_resources);
+            Piece.Requirement[] resources = fullRecipe.m_resources;
+            List<Piece.Requirement> fullReqs = new List<Piece.Requirement>(resources != null ? resources.Length : 0);
+            if (resources != null) {
+                for (int r = 0; r < resources.Length; r++)
+                    fullReqs.Add(resources[r]);
+            }
 
             int calculatedRepairCoinCost = 0;
 
             bool isMagic = false;
             if (epicLootAssembly != null) {
                 try {
-                    isMagic = (bool)epicLootIsMagic.Invoke(null, new[] { item });
+                    invokeOne[0] = item;
+                    isMagic = (bool)epicLootIsMagic.Invoke(null, invokeOne);
                 } catch { }
             }
             if (isMagic) {
                 try {
-                    int rarity = (int)epicLootGetRarity.Invoke(null, new[] { item });
+                    invokeOne[0] = item;
+                    int rarity = (int)epicLootGetRarity.Invoke(null, invokeOne);
                     List<KeyValuePair<ItemDrop, int>> magicReqs = (List<KeyValuePair<ItemDrop, int>>)epicLootGetEnchantCosts.Invoke(null, new object[] { item, rarity });
                     foreach (var kvp in magicReqs) {
                         fullReqs.Add(new Piece.Requirement() {
@@ -1243,16 +1302,14 @@ namespace RepairRequiresMats {
 
         private static bool TryGetMaterialRateByProperty(string propertyName, out float rate) {
             rate = 0;
-            if (savedValues == null || string.IsNullOrEmpty(propertyName))
-                return false;
-            foreach (PropertyInfo prop in typeof(WeaponAndArmorValues).GetProperties()) {
-                if (!string.Equals(prop.Name, propertyName, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                rate = Convert.ToSingle(prop.GetValue(savedValues, null));
-                return true;
-            }
-            return false;
+            return !string.IsNullOrEmpty(propertyName) && materialRates.TryGetValue(propertyName, out rate);
         }
+    }
+
+    internal sealed class ItemRefComparer : IEqualityComparer<ItemDrop.ItemData> {
+        public static readonly ItemRefComparer Instance = new ItemRefComparer();
+        public bool Equals(ItemDrop.ItemData x, ItemDrop.ItemData y) { return ReferenceEquals(x, y); }
+        public int GetHashCode(ItemDrop.ItemData obj) { return RuntimeHelpers.GetHashCode(obj); }
     }
 }
 

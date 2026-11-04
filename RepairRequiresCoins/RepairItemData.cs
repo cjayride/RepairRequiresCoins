@@ -11,14 +11,16 @@ namespace RepairRequiresMats
         public bool IconUsed;
     }
 
-    internal class RepairItemData : ItemDrop.ItemData
+    internal class RepairItemData
     {
         public List<string> reqstring;
+        public List<string> reqplain;
         public ItemDrop.ItemData item;
 
-        public RepairItemData(ItemDrop.ItemData item, List<string> reqstring = null)
+        public RepairItemData(ItemDrop.ItemData item, List<string> reqstring = null, List<string> reqplain = null)
         {
             this.reqstring = reqstring;
+            this.reqplain = reqplain;
             this.item = item;
         }
     }
