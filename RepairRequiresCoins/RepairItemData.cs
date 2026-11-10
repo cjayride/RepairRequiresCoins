@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace RepairRequiresMats
 {
@@ -8,7 +8,6 @@ namespace RepairRequiresMats
         public string Cost;
         public string Note;
         public UnityEngine.Sprite Icon;
-        public bool IconUsed;
     }
 
     internal class RepairItemData

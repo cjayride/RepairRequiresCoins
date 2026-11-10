@@ -1,4 +1,4 @@
-﻿using BepInEx;
+using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using HarmonyLib;
@@ -13,10 +13,10 @@ using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.12")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.14")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
-        public const string Version = "1.2.12";
+        public const string Version = "1.2.14";
         public const string ModName = "Repair Requires Coins";
 
         private static bool isDebug = false;
@@ -35,9 +35,9 @@ namespace RepairRequiresMats {
         private static string repairTooltipBody = "";
         private static string repairTooltipBodyPlain = "";
         private static readonly List<RepairOfferLine> senealOfferLines = new List<RepairOfferLine>();
-        private static bool senealDrawingOurTip;
         private static string senealStationLine = "";
         private static int senealCoinCount = 0;
+        private static Sprite senealStationIcon;
 
         private static BepInExPlugin context;
 
@@ -527,6 +527,7 @@ namespace RepairRequiresMats {
 
             senealCoinCount = Player.m_localPlayer != null ? CountNamedItems(Player.m_localPlayer.GetInventory(), "$item_coins") : 0;
             senealStationLine = GetCurrentStationLevelLabel();
+            senealStationIcon = GetStationIcon(Player.m_localPlayer != null ? Player.m_localPlayer.GetCurrentCraftingStation() : null);
 
             if (richLines.Count == 0)
                 richLines.Add("No worn items at this station.");
@@ -749,14 +750,6 @@ namespace RepairRequiresMats {
             Harmony harmony = new Harmony("cjayride.RepairRequiresCoins.seneal");
             harmony.Patch(repairTip, postfix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLRepairTipPostfix)));
 
-            Type tooltipType = AccessTools.TypeByName("SeneaLUI.Components.Tooltip");
-            MethodInfo build = tooltipType != null ? AccessTools.Method(tooltipType, "Build") : null;
-            MethodInfo layRow = tooltipType != null ? AccessTools.Method(tooltipType, "LayRow") : null;
-            if (build != null)
-                harmony.Patch(build, prefix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLTooltipBuildPrefix)));
-            if (layRow != null)
-                harmony.Patch(layRow, postfix: new HarmonyMethod(typeof(BepInExPlugin), nameof(SeneaLTooltipLayRowPostfix)));
-
             Dbgl("Patched SeneaL CraftView.RepairTip");
         }
 
@@ -772,107 +765,11 @@ namespace RepairRequiresMats {
             }
         }
 
-        private static void SeneaLTooltipBuildPrefix(object tip) {
-            senealDrawingOurTip = false;
-            foreach (RepairOfferLine line in senealOfferLines)
-                line.IconUsed = false;
-            if (tip == null)
-                return;
-            string source = Traverse.Create(tip).Field("Source").GetValue<string>();
-            senealDrawingOurTip = source == "RepairRequiresCoins";
-        }
-
-        private static void SeneaLTooltipLayRowPostfix(object row, object r) {
-            if (!senealDrawingOurTip)
-                return;
-
-            try {
-                object data = row;
-                object ui = r;
-                if (!(Traverse.Create(ui).Field("Label").GetValue() is TMP_Text)) {
-                    if (Traverse.Create(data).Field("Label").GetValue() is TMP_Text) {
-                        object swap = data;
-                        data = ui;
-                        ui = swap;
-                    } else {
-                        return;
-                    }
-                }
-
-                string name = Traverse.Create(data).Field("Label").GetValue() as string;
-                TMP_Text label = Traverse.Create(ui).Field("Label").GetValue() as TMP_Text;
-                if (label == null)
-                    return;
-
-                ApplySeneaLRowIcon(label, TakeOfferIcon(name));
-            } catch {
-            }
-        }
-
-        private static Sprite TakeOfferIcon(string name) {
-            if (string.IsNullOrEmpty(name))
+        private static Sprite GetStationIcon(CraftingStation station) {
+            if (!station)
                 return null;
-            foreach (RepairOfferLine line in senealOfferLines) {
-                if (line.IconUsed || line.Name != name)
-                    continue;
-                line.IconUsed = true;
-                return line.Icon;
-            }
-            return null;
+            return station.m_icon;
         }
-
-        private static void ApplySeneaLRowIcon(TMP_Text label, Sprite icon) {
-            if (label == null)
-                return;
-
-            const string childName = "RepairRequiresCoinsIcon";
-            const float size = 20f;
-            const float gap = 6f;
-            Transform existing = label.transform.Find(childName);
-            if (icon == null) {
-                if (existing)
-                    existing.gameObject.SetActive(false);
-                label.margin = new Vector4(0f, label.margin.y, label.margin.z, label.margin.w);
-                return;
-            }
-
-            RectTransform iconRt;
-            Image image;
-            if (existing == null) {
-                GameObject go = new GameObject(childName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-                go.layer = label.gameObject.layer;
-                go.transform.SetParent(label.transform, false);
-                iconRt = go.GetComponent<RectTransform>();
-                iconRt.anchorMin = new Vector2(0f, 0.5f);
-                iconRt.anchorMax = new Vector2(0f, 0.5f);
-                iconRt.pivot = new Vector2(0f, 0.5f);
-                iconRt.sizeDelta = new Vector2(size, size);
-                iconRt.anchoredPosition = new Vector2(0f, 0f);
-                image = go.GetComponent<Image>();
-                image.raycastTarget = false;
-                image.preserveAspect = true;
-                image.type = Image.Type.Simple;
-            } else {
-                iconRt = existing as RectTransform;
-                image = existing.GetComponent<Image>();
-                existing.gameObject.SetActive(true);
-            }
-
-            if (image != null) {
-                image.sprite = icon;
-                image.overrideSprite = icon;
-                image.color = Color.white;
-                image.material = null;
-            }
-            if (iconRt != null) {
-                iconRt.sizeDelta = new Vector2(size, size);
-                iconRt.anchoredPosition = new Vector2(0f, 0f);
-                iconRt.localScale = Vector3.one;
-            }
-
-            label.margin = new Vector4(size + gap, label.margin.y, label.margin.z, label.margin.w);
-        }
-
         private static void SeneaLRepairTipPostfix(object __result) {
             if (!modEnabled.Value || __result == null)
                 return;
@@ -882,7 +779,7 @@ namespace RepairRequiresMats {
 
             Traverse tip = Traverse.Create(__result);
             if (tip.Method("Reset", new[] { typeof(string), typeof(int) }).MethodExists())
-                tip.Method("Reset", new[] { typeof(string), typeof(int) }).GetValue("Repair", UnityEngine.Random.Range(1, int.MaxValue));
+                tip.Method("Reset", new[] { typeof(string), typeof(int) }).GetValue("Repair", lastOfferStamp);
 
             if (tip.Field("Title").FieldExists())
                 tip.Field("Title").SetValue("Repair");
@@ -900,8 +797,9 @@ namespace RepairRequiresMats {
                 tip.Field("RichText").SetValue(false);
             if (tip.Field("Source").FieldExists())
                 tip.Field("Source").SetValue("RepairRequiresCoins");
+            // Station sprite in the tooltip header box, beside the "Workbench Lvl: 5" line.
             if (tip.Field("Icon").FieldExists())
-                tip.Field("Icon").SetValue(null);
+                tip.Field("Icon").SetValue(senealStationIcon);
 
             IList rows = tip.Field("Rows").FieldExists() ? tip.Field("Rows").GetValue() as IList : null;
             rows?.Clear();
@@ -917,13 +815,26 @@ namespace RepairRequiresMats {
             if (tip.Field("Body").FieldExists())
                 tip.Field("Body").SetValue("");
 
+            Traverse addRow = tip.Method("AddRow", new[] { typeof(string), typeof(string), typeof(string) });
+            if (rows == null || !addRow.MethodExists())
+                return;
+
             foreach (RepairOfferLine line in senealOfferLines) {
                 string right = !string.IsNullOrEmpty(line.Cost) ? line.Cost : line.Note;
-                if (tip.Method("AddRow", new[] { typeof(string), typeof(string), typeof(string) }).MethodExists())
-                    tip.Method("AddRow", new[] { typeof(string), typeof(string), typeof(string) }).GetValue(line.Name, right, "");
+                addRow.GetValue(line.Name, right, "");
+
+                int index = rows.Count - 1;
+                if (index < 0 || line.Icon == null)
+                    continue;
+                // SeneaL draws Tip.Row.Icon itself: 16px, vertically centred on the row text.
+                object rowBox = rows[index];
+                if (rowBox == null)
+                    continue;
+                Traverse.Create(rowBox).Field("Icon").SetValue(line.Icon);
+                rows[index] = rowBox;
             }
 
-            if (rows == null || rows.Count == 0) {
+            if (rows.Count == 0) {
                 if (tip.Field("Body").FieldExists())
                     tip.Field("Body").SetValue(BuildSeneaLPlainBody());
             }

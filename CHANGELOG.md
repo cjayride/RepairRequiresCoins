@@ -1,3 +1,11 @@
+# v1.2.14
+- SeneaL UI repair tooltip: the icon beside "Workbench Lvl: 5" (and Forge / Fletcher-table equivalents) is now the station's own icon, not an item icon.
+- Item icons in the repair list are drawn by SeneaL's native row icons, so they sit on their own item lines instead of floating onto the station line.
+- Tooltip cache key is content-based (station, items, costs, coins), replacing the random per-open version.
+
+# v1.2.13
+- Rebuilt the Thunderstore zip (the 1.2.12 package was rejected). Package layout: every file at the archive root — `manifest.json`, `icon.png`, `README.md`, `CHANGELOG.md`, `RepairRequiresMats.dll`. No subfolders.
+
 # v1.2.12
 - Verified against Valheim 1.0.21 (Steam buildid 26249040).
 - Faster inventory repair UI: skip rebuilding costs every frame, cache recipes and material rates, use vanilla CountItems/RemoveItem, and avoid per-frame reflection and tooltip tree searches.
