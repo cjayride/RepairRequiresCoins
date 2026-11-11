@@ -28,6 +28,16 @@
 - Changelog rewritten: v1.2.15 = restores row icons (regression introduced in 1.2.14).
 - **Awaiting user in-game test.** Not packaged, not committed, not pushed.
 
+## 1.2.15 RELEASED (11/11)
+- User in-game test: "the code for RepairRequiresCoins works." Row icons + station icon confirmed.
+- Test profile `DebugLogging` set back to `false` (backup `cjayride.RepairRequiresCoins.cfg.bak-testflag`).
+- Rebuilt (EXIT=0), packaged with `tools\Package1215.ps1`: `dist\cjayride-RepairRequiresCoins-1.2.15.zip` = 100,767 B; 5 entries at archive root (manifest.json, icon.png, README.md, CHANGELOG.md, RepairRequiresMats.dll); NESTED ENTRY COUNT = 0; extracted manifest 1.2.15 + DLL FileVersion 1.2.15.
+- Loose `dist\` copies (DLL/manifest/CHANGELOG) synced to 1.2.15.
+- Commit `27fd2d2` "Release 1.2.15: restore repair-list item icons (regression in 1.2.14); DebugLogging option"; tag `v1.2.15` (annotated). Committed zip blob `f53cd258...` == `git hash-object` of worktree zip (100,767 B).
+- Pushed `main` (1331934..27fd2d2) and tag `v1.2.15` to `https://github.com/cjayride/RepairRequiresCoins.git` (both exit 0).
+- Also committed: `tools\` release scripts + 1.2.12 reference source; untracked stale net480 bin/obj artifacts (deleted from index; worktree copies remain).
+- Thunderstore upload: user has the zip; upload on request. Do NOT upload the 1.2.14 zip (row-icon regression).
+
 ---
 
 # RepairRequiresCoins — release 1.2.14 (zip built; pushed to GitHub)

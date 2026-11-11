@@ -1,9 +1,9 @@
-# v1.2.15
-- Repair list: restores the item icon beside each item row (regression in v1.2.14, which removed the code that drew them while adding the station icon). Uses the same drawing path as v1.2.12.
-- Added a `DebugLogging` config option (off by default) that logs repair tooltip diagnostics.
+# v1.2.16
+- **Fixed: repair item icons leaking into normal item tooltips.** SeneaL UI renders every tooltip on ONE pooled panel, and the repair tooltip's item icons are children of the pooled row labels. After hovering the repair button, item tooltips reused those rows and showed stray weapon icons next to Damage / Pierce / Knockback / Backstab. Every repair row icon (and its label indent) is now swept off the panel the moment a non-repair tooltip starts drawing; the repair window's own icons are unchanged.
 
 # v1.2.14
 - SeneaL UI repair tooltip: the icon beside "Workbench Lvl: 5" (and Forge / Fletcher-table equivalents) is now the station's own icon, not an item icon.
+- Item icons in the repair list are drawn by SeneaL's native row icons, so they sit on their own item lines instead of floating onto the station line.
 - Tooltip cache key is content-based (station, items, costs, coins), replacing the random per-open version.
 
 # v1.2.13

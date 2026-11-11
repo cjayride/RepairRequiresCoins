@@ -13,7 +13,7 @@ using UnityEngine.UI;
 using TMPro;
 
 namespace RepairRequiresMats {
-    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.15")]
+    [BepInPlugin("cjayride.RepairRequiresCoins", "Repair Requires Coins", "1.2.16")]
     [BepInDependency("Swmarly.ValheimQOL", BepInDependency.DependencyFlags.SoftDependency)]
     public class BepInExPlugin : BaseUnityPlugin {
         public const string Version = "1.2.15";
@@ -782,6 +782,7 @@ namespace RepairRequiresMats {
         // that row's own label, added from Tooltip.LayRow's postfix. The Build prefix marks
         // whether SeneaL is drawing our tooltip and rewinds the per-icon "used" flags.
         private static bool senealDrawingOurTip;
+        private static bool senealOurTipLast;
 
         private static void SeneaLTooltipBuildPrefix(object tip) {
             senealDrawingOurTip = false;
@@ -791,6 +792,34 @@ namespace RepairRequiresMats {
                 return;
             string source = Traverse.Create(tip).Field("Source").GetValue<string>();
             senealDrawingOurTip = source == "RepairRequiresCoins";
+            // v1.2.16: SeneaL's tooltip is ONE pooled panel - its row labels are reused by every
+            // tooltip. Our repair icons live as children of those pooled labels, so after any
+            // repair tooltip, normal item tooltips drew the leftover weapon icons next to
+            // Damage/Pierce/Knockback/... rows. Sweep every stale icon off the panel whenever a
+            // tooltip that is NOT ours is about to draw; the repair window's own icons are
+            // untouched (they are re-applied by the LayRow postfix while our tip draws).
+            if (!senealDrawingOurTip && senealOurTipLast)
+                HideAllRepairRowIcons();
+            senealOurTipLast = senealDrawingOurTip;
+        }
+
+        private static void HideAllRepairRowIcons() {
+            try {
+                var panelField = AccessTools.Field(AccessTools.TypeByName("SeneaLUI.Components.Tooltip"), "_panel");
+                var panel = panelField != null ? panelField.GetValue(null) as RectTransform : null;
+                if (panel == null)
+                    return;
+                Transform[] all = panel.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < all.Length; i++) {
+                    if (all[i].name != "RepairRequiresCoinsIcon")
+                        continue;
+                    all[i].gameObject.SetActive(false);
+                    TMP_Text owner = all[i].parent != null ? all[i].parent.GetComponent<TMP_Text>() : null;
+                    if (owner != null)
+                        owner.margin = new Vector4(0f, owner.margin.y, owner.margin.z, owner.margin.w);
+                }
+            } catch {
+            }
         }
 
         private static void SeneaLTooltipLayRowPostfix(object row, object r) {
